@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SapDiApi.Bridge.Tests/SapDiApi.Bridge.Tests.csproj" />
+  <Project Path="SapDiApi.Bridge/SapDiApi.Bridge.csproj" />
+</Solution>

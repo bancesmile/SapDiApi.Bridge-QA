@@ -1,0 +1,126 @@
+## =======================================================
+## .gitignore Integral para .NET 8 / Visual Studio / SAP DI API
+## =======================================================
+
+# --------------------------------------------------
+# 1. Archivos de Compilación, Binarios y Cachés (.NET)
+# --------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Aa]rtifacts/
+[Pp]ackages/
+_ReSharper*/
+*.DotSettings.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.vspscc
+*.vssscc
+*.cache
+*.cachefile
+*.FileListAbsolute.txt
+*.incremental
+*.pdb
+*.idb
+*.ilk
+*.pch
+*.dmp
+*.mdmp
+*.crash
+
+# Paquetes NuGet generados localmente
+*.nupkg
+*.snupkg
+**/project.lock.json
+**/project.fragment.lock.json
+
+# --------------------------------------------------
+# 2. Entornos de Desarrollo e IDEs (Visual Studio / VS Code / Rider)
+# --------------------------------------------------
+.vs/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.opendb
+*.opensdf
+*.sdf
+*.aps
+*.ncb
+
+# --------------------------------------------------
+# 3. Logs, Métricas y Auditoría en Tiempo de Ejecución
+# --------------------------------------------------
+[Ll]og/
+[Ll]ogs/
+*.log
+*.log.*
+bridge-audit-*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --------------------------------------------------
+# 4. Pruebas Unitarias y Cobertura de Código (Testing)
+# --------------------------------------------------
+[Tt]est[Rr]esults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+*.codecoverage
+
+# --------------------------------------------------
+# 5. Seguridad, Credenciales y Configuraciones Sensibles
+# --------------------------------------------------
+# Excluir configuraciones locales con contraseñas, llaves o IPs reales
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.template.json
+
+# Secretos de usuario, variables de entorno y certificados
+secrets.json
+.env
+.env.*
+*.env
+*.pfx
+*.p12
+*.key
+*.pem
+*.cer
+*.crt
+
+# --------------------------------------------------
+# 6. Archivos Temporales del Sistema Operativo y Backups
+# --------------------------------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+UpgradeLog*.XML
+UpgradeLog*.htm
+
+# --------------------------------------------------
+# 7. Excepciones Requeridas para Compilar el Proyecto
+# --------------------------------------------------
+# DLL COM de SAP Business One necesaria para construir la solución
+!**/lib/Interop.SAPbobsCOM.dll
