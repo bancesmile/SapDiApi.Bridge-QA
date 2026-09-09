@@ -49,6 +49,7 @@ _ReSharper*/
 # 2. Entornos de Desarrollo e IDEs (Visual Studio / VS Code / Rider)
 # --------------------------------------------------
 .vs/
+doc/
 .idea/
 .vscode/*
 !.vscode/settings.json

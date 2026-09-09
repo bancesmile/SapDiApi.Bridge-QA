@@ -15,10 +15,7 @@ namespace SapDiApi.Bridge.Controllers
         private readonly ISapAuthService _sapAuthService;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(
-            ISessionManager sessionManager,
-            ISapAuthService sapAuthService,
-            ILogger<AuthController> logger)
+        public AuthController(ISessionManager sessionManager, ISapAuthService sapAuthService, ILogger<AuthController> logger)
         {
             _sessionManager = sessionManager;
             _sapAuthService = sapAuthService;

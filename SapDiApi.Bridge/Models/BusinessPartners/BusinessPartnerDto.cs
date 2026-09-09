@@ -7,6 +7,7 @@ namespace SapDiApi.Bridge.Models.BusinessPartners
     /// </summary>
     public class BusinessPartnerDto
     {
+
         public string CardCode { get; set; } = string.Empty;
         public string CardName { get; set; } = string.Empty;
         public string CardType { get; set; } = "cSupplier"; // cCustomer, cSupplier, cLead

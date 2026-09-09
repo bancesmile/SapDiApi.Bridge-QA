@@ -118,8 +118,8 @@ app.UseRequestAuditLogging();
 // Documentación de APIs
 app.UseModernApiDocumentation();
 
-// Redirección de la raíz hacia la documentación moderna Scalar (/scalar/v1)
-app.MapGet("/", () => Results.Redirect("/scalar/v1"));
+// Redirección de la raíz hacia la documentación (/doc)
+app.MapGet("/", () => Results.Redirect("/doc"));
 
 app.UseRouting();
 

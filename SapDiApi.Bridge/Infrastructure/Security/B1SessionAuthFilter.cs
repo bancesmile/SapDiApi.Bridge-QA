@@ -12,10 +12,7 @@ namespace SapDiApi.Bridge.Infrastructure.Security
         private readonly ApiKeyOptions _apiKeyOptions;
         private readonly ILogger<B1SessionAuthFilter> _logger;
 
-        public B1SessionAuthFilter(
-            ISessionManager sessionManager,
-            IOptions<ApiKeyOptions> apiKeyOptions,
-            ILogger<B1SessionAuthFilter> logger)
+        public B1SessionAuthFilter(ISessionManager sessionManager, IOptions<ApiKeyOptions> apiKeyOptions, ILogger<B1SessionAuthFilter> logger)
         {
             _sessionManager = sessionManager;
             _apiKeyOptions = apiKeyOptions.Value;
