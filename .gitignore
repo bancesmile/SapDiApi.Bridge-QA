@@ -125,3 +125,8 @@ UpgradeLog*.htm
 # --------------------------------------------------
 # DLL COM de SAP Business One necesaria para construir la solución
 !**/lib/Interop.SAPbobsCOM.dll
+/.agents/rules
+/.github
+/.cursorrules
+/AGENTS.md
+/README.md
