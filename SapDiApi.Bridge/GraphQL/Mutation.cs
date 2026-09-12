@@ -1,11 +1,14 @@
 using HotChocolate;
 using Microsoft.Extensions.Options;
 using SapDiApi.Bridge.Infrastructure.Security;
+using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
+using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
+using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Sap;
 
 namespace SapDiApi.Bridge.GraphQL
@@ -132,6 +135,60 @@ namespace SapDiApi.Bridge.GraphQL
         }
 
         /// <summary>
+        /// Actualiza o asienta decisiones (aprobar/rechazar) en una Solicitud de Aprobación en SAP Business One.
+        /// </summary>
+        public async Task<ApprovalRequestMutationResult> UpdateApprovalRequest(
+            int code,
+            UpdateApprovalRequestDto input,
+            [Service] IApprovalRequestService approvalService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            var (success, resultCode, errorMessage) = await approvalService.UpdateAsync(code, input, session);
+
+            if (!success)
+            {
+                throw new GraphQLException(errorMessage ?? $"Fallo al actualizar la solicitud de aprobación #{code} en SAP.");
+            }
+
+            return new ApprovalRequestMutationResult
+            {
+                Success = success,
+                Code = resultCode,
+                ErrorMessage = errorMessage
+            };
+        }
+
+        /// <summary>
+        /// Convierte un borrador preliminar aprobado (Draft) en documento real contabilizado en SAP Business One.
+        /// </summary>
+        public async Task<DraftSaveMutationResult> SaveDraftToDocument(
+            int docEntry,
+            [Service] IDraftService draftService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            var (success, resultDocEntry, generatedDocEntry, errorMessage) = await draftService.SaveDraftToDocumentAsync(docEntry, session);
+
+            if (!success)
+            {
+                throw new GraphQLException(errorMessage ?? $"Fallo al convertir el borrador #{docEntry} en documento real en SAP.");
+            }
+
+            return new DraftSaveMutationResult
+            {
+                Success = success,
+                DraftDocEntry = resultDocEntry,
+                GeneratedDocEntry = generatedDocEntry,
+                ErrorMessage = errorMessage
+            };
+        }
+
+        /// <summary>
         /// Crea o actualiza un lote de anexos físicos (Attachments2 / OATC) en SAP Business One.
         /// </summary>
         public async Task<AttachmentMutationResult> CreateAttachment(
@@ -165,6 +222,21 @@ namespace SapDiApi.Bridge.GraphQL
         public string? ErrorMessage { get; set; }
     }
 
+    public class ApprovalRequestMutationResult
+    {
+        public bool Success { get; set; }
+        public int Code { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    public class DraftSaveMutationResult
+    {
+        public bool Success { get; set; }
+        public int DraftDocEntry { get; set; }
+        public int? GeneratedDocEntry { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
     public class AttachmentMutationResult
     {
         public bool Success { get; set; }
@@ -172,3 +244,4 @@ namespace SapDiApi.Bridge.GraphQL
         public string? ErrorMessage { get; set; }
     }
 }
+

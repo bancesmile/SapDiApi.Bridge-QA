@@ -6,13 +6,17 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Common;
+using SapDiApi.Bridge.Models.Drafts;
 using SapDiApi.Bridge.Models.Health;
+using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
+using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Sap;
 using Xunit;
 
@@ -275,6 +279,83 @@ namespace SapDiApi.Bridge.Tests.Controllers
             Assert.Equal(HttpStatusCode.Unauthorized, pingResponse.StatusCode);
         }
 
+        [Fact]
+        public async Task ApprovalRequests_GetByCode_And_Update_ReturnsSuccess()
+        {
+            // 1. Iniciar sesión
+            var loginDto = new LoginRequestDto { CompanyDB = "SBODEMO_TEST", UserName = "manager", Password = "manager123" };
+            var loginResponse = await _client.PostAsJsonAsync("/api/v1/Login", loginDto);
+            var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+            Assert.NotNull(loginResult);
+
+            // 2. Consultar Solicitud de Aprobación por ruta de Service Layer /b1s/v1/ApprovalRequests(6106)
+            var getReq = new HttpRequestMessage(HttpMethod.Get, "/b1s/v1/ApprovalRequests(6106)");
+            getReq.Headers.Add("B1SESSION", loginResult.SessionId);
+            var getResp = await _client.SendAsync(getReq);
+
+            Assert.Equal(HttpStatusCode.OK, getResp.StatusCode);
+            var content = await getResp.Content.ReadFromJsonAsync<ApiResponse<ApprovalRequestDto>>();
+            Assert.NotNull(content?.Data);
+            Assert.Equal(6106, content.Data.Code);
+            Assert.Equal("arsApproved", content.Data.Status);
+            Assert.Equal(5137, content.Data.DraftEntry);
+
+            // 3. Actualizar / Decidir Aprobación vía PATCH /b1s/v1/ApprovalRequests(6106)
+            var patchDto = new UpdateApprovalRequestDto
+            {
+                CurrentStage = 9,
+                Status = "Y",
+                ApprovalRequestDecisions = new List<ApprovalRequestDecisionDto>
+                {
+                    new()
+                    {
+                        Status = "ardApproved",
+                        ApproverUserName = "manager",
+                        Remarks = "Aprobado por Dirección Financiera"
+                    }
+                }
+            };
+
+            var patchReq = new HttpRequestMessage(HttpMethod.Patch, "/b1s/v1/ApprovalRequests(6106)")
+            {
+                Content = JsonContent.Create(patchDto)
+            };
+            patchReq.Headers.Add("B1SESSION", loginResult.SessionId);
+            var patchResp = await _client.SendAsync(patchReq);
+
+            Assert.Equal(HttpStatusCode.OK, patchResp.StatusCode);
+        }
+
+        [Fact]
+        public async Task Drafts_GetByDocEntry_And_SaveDraftToDocument_ReturnsSuccess()
+        {
+            // 1. Iniciar sesión
+            var loginDto = new LoginRequestDto { CompanyDB = "SBODEMO_TEST", UserName = "manager", Password = "manager123" };
+            var loginResponse = await _client.PostAsJsonAsync("/api/v1/Login", loginDto);
+            var loginResult = await loginResponse.Content.ReadFromJsonAsync<LoginResponseDto>();
+            Assert.NotNull(loginResult);
+
+            // 2. Consultar Borrador por ruta Service Layer /b1s/v1/Drafts(5137)
+            var getReq = new HttpRequestMessage(HttpMethod.Get, "/b1s/v1/Drafts(5137)");
+            getReq.Headers.Add("B1SESSION", loginResult.SessionId);
+            var getResp = await _client.SendAsync(getReq);
+
+            Assert.Equal(HttpStatusCode.OK, getResp.StatusCode);
+            var content = await getResp.Content.ReadFromJsonAsync<ApiResponse<DraftDto>>();
+            Assert.NotNull(content?.Data);
+            Assert.Equal(5137, content.Data.DocEntry);
+            Assert.Equal("P000009", content.Data.CardCode);
+            Assert.Equal("tYES", content.Data.Confirmed);
+            Assert.NotEmpty(content.Data.DocumentLines);
+
+            // 3. Convertir Borrador a Documento Real /b1s/v1/Drafts(5137)/SaveDraftToDocument
+            var saveReq = new HttpRequestMessage(HttpMethod.Post, "/b1s/v1/Drafts(5137)/SaveDraftToDocument");
+            saveReq.Headers.Add("B1SESSION", loginResult.SessionId);
+            var saveResp = await _client.SendAsync(saveReq);
+
+            Assert.Equal(HttpStatusCode.OK, saveResp.StatusCode);
+        }
+
         // Clases de prueba aisladas exclusivamente en el proyecto de pruebas
         private class TestSapDiApiConnector : ISapDiApiConnector
         {
@@ -310,6 +391,74 @@ namespace SapDiApi.Bridge.Tests.Controllers
             public Task<(bool Success, int AttachmentEntry, string? ErrorMessage)> CreateOrUpdateAttachmentAsync(UserSession session, AttachmentDto dto)
             {
                 return Task.FromResult<(bool Success, int AttachmentEntry, string? ErrorMessage)>((true, 100, null));
+            }
+
+            public Task<ApprovalRequestDto?> GetApprovalRequestAsync(UserSession session, int code)
+            {
+                return Task.FromResult<ApprovalRequestDto?>(new ApprovalRequestDto
+                {
+                    Code = code,
+                    ApprovalTemplatesID = 74,
+                    ObjectType = "22",
+                    IsDraft = "Y",
+                    Status = "arsApproved",
+                    Remarks = "TEST",
+                    CurrentStage = 9,
+                    OriginatorID = 208,
+                    CreationDate = "2026-07-16",
+                    CreationTime = "11:49:00",
+                    DraftEntry = 5137,
+                    DraftType = "112",
+                    ApprovalRequestLines = new List<ApprovalRequestLineDto>
+                    {
+                        new() { StageCode = 9, UserID = 1, Status = "ardApproved" }
+                    }
+                });
+            }
+
+            public Task<IEnumerable<ApprovalRequestDto>> GetApprovalRequestsFilteredAsync(UserSession session, ApprovalRequestFilterDto filter)
+            {
+                return Task.FromResult<IEnumerable<ApprovalRequestDto>>(new List<ApprovalRequestDto>
+                {
+                    new() { Code = 6106, Status = "arsApproved", DraftEntry = 5137 }
+                });
+            }
+
+            public Task<(bool Success, int Code, string? ErrorMessage)> UpdateApprovalRequestAsync(UserSession session, int code, UpdateApprovalRequestDto dto)
+            {
+                return Task.FromResult<(bool Success, int Code, string? ErrorMessage)>((true, code, null));
+            }
+
+            public Task<DraftDto?> GetDraftAsync(UserSession session, int docEntry)
+            {
+                return Task.FromResult<DraftDto?>(new DraftDto
+                {
+                    DocEntry = docEntry,
+                    DocNum = 2004241,
+                    DocType = "dDocument_Items",
+                    CardCode = "P000009",
+                    CardName = "CONSTRUCTORA QUIMAC, S.A.",
+                    DocTotal = 14820.860m,
+                    Comments = "TEST SRV",
+                    Confirmed = "tYES",
+                    DocumentLines = new List<DraftDocumentLineDto>
+                    {
+                        new() { LineNum = 0, ItemCode = "SRV0188", ItemDescription = "BODEGA", Quantity = 1, Price = 13232.91m }
+                    }
+                });
+            }
+
+            public Task<IEnumerable<DraftDto>> GetDraftsFilteredAsync(UserSession session, DraftFilterDto filter)
+            {
+                return Task.FromResult<IEnumerable<DraftDto>>(new List<DraftDto>
+                {
+                    new() { DocEntry = 5137, CardCode = "P000009", CardName = "CONSTRUCTORA QUIMAC, S.A." }
+                });
+            }
+
+            public Task<(bool Success, int DocEntry, int? GeneratedDocEntry, string? ErrorMessage)> SaveDraftToDocumentAsync(UserSession session, int docEntry)
+            {
+                return Task.FromResult<(bool Success, int DocEntry, int? GeneratedDocEntry, string? ErrorMessage)>((true, docEntry, 9999, null));
             }
         }
 

@@ -3,8 +3,10 @@ using SapDiApi.Bridge.Infrastructure.Filters;
 using SapDiApi.Bridge.Infrastructure.Logging;
 using SapDiApi.Bridge.Infrastructure.Security;
 using SapDiApi.Bridge.Infrastructure.Swagger;
+using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
+using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
 using SapDiApi.Bridge.Services.Sap;
 using Serilog;
@@ -41,6 +43,8 @@ builder.Services.AddSingleton<ISapCompanyPool, SapCompanyPool>();
 builder.Services.AddSingleton<ISapDiApiConnector, SapDiApiConnector>();
 builder.Services.AddSingleton<IHealthService, HealthService>();
 builder.Services.AddSingleton<IBusinessPartnerService, BusinessPartnerService>();
+builder.Services.AddSingleton<IApprovalRequestService, ApprovalRequestService>();
+builder.Services.AddSingleton<IDraftService, DraftService>();
 
 // 4. GraphQL con Soporte Completo para Filtering, Sorting, Proyecciones y Mutations
 builder.Services
