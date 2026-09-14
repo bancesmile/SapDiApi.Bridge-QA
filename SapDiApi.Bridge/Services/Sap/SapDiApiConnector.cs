@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
 using SAPbobsCOM;
+using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
+using SapDiApi.Bridge.Models.Drafts;
 using SapDiApi.Bridge.Models.Sap;
 
 namespace SapDiApi.Bridge.Services.Sap
@@ -1096,6 +1098,657 @@ namespace SapDiApi.Bridge.Services.Sap
             });
         }
 
+        #region ApprovalRequests (Gestión de Autorizaciones)
+
+        public async Task<ApprovalRequestDto?> GetApprovalRequestAsync(UserSession session, int code)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Consultando Solicitud de Aprobación #{Code} en SAP | DB: {DB} | Usuario: {User}",
+                code, session.CompanyDB, session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                CompanyService? compService = null;
+                ApprovalRequestsService? appService = null;
+                ApprovalRequestParams? appParams = null;
+                ApprovalRequest? appReq = null;
+
+                try
+                {
+                    compService = company.GetCompanyService();
+                    appService = (ApprovalRequestsService)compService.GetBusinessService(ServiceTypes.ApprovalRequestsService);
+                    appParams = (ApprovalRequestParams)appService.GetDataInterface(ApprovalRequestsServiceDataInterfaces.arsApprovalRequestParams);
+                    appParams.Code = code;
+
+                    appReq = appService.GetApprovalRequest(appParams);
+                    if (appReq == null)
+                    {
+                        return Task.FromResult<ApprovalRequestDto?>(null);
+                    }
+
+                    var appDto = new ApprovalRequestDto
+                    {
+                        Code = appReq.Code,
+                        ApprovalTemplatesID = appReq.ApprovalTemplatesID > 0 ? appReq.ApprovalTemplatesID : null,
+                        ObjectType = appReq.ObjectType,
+                        IsDraft = appReq.IsDraft,
+                        ObjectEntry = appReq.ObjectEntry > 0 ? appReq.ObjectEntry : null,
+                        Status = appReq.Status.ToString(),
+                        Remarks = appReq.Remarks,
+                        CurrentStage = appReq.CurrentStage > 0 ? appReq.CurrentStage : null,
+                        OriginatorID = appReq.OriginatorID > 0 ? appReq.OriginatorID : null,
+                        CreationDate = CleanSapDate(appReq.CreationDate)?.ToString("yyyy-MM-dd"),
+                        CreationTime = FormatSapTime(appReq.CreationTime),
+                        DraftEntry = appReq.DraftEntry > 0 ? appReq.DraftEntry : null,
+                        DraftType = appReq.DraftType
+                    };
+
+                    // Obtener líneas de etapas y autorizadores asignados
+                    var lines = appReq.ApprovalRequestLines;
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        var line = lines.Item(i);
+                        appDto.ApprovalRequestLines.Add(new ApprovalRequestLineDto
+                        {
+                            StageCode = line.StageCode,
+                            UserID = line.UserID,
+                            Status = line.Status.ToString(),
+                            Remarks = line.Remarks,
+                            UpdateDate = CleanSapDate(line.UpdateDate)?.ToString("yyyy-MM-dd"),
+                            UpdateTime = FormatSapTime(line.UpdateTime),
+                            CreationDate = CleanSapDate(line.CreationDate)?.ToString("yyyy-MM-dd"),
+                            CreationTime = FormatSapTime(line.CreationTime)
+                        });
+                    }
+
+                    // Obtener historial de decisiones
+                    var decisions = appReq.ApprovalRequestDecisions;
+                    for (int i = 0; i < decisions.Count; i++)
+                    {
+                        var dec = decisions.Item(i);
+                        appDto.ApprovalRequestDecisions.Add(new ApprovalRequestDecisionDto
+                        {
+                            ApproverUserName = dec.ApproverUserName,
+                            Status = dec.Status.ToString(),
+                            Remarks = dec.Remarks
+                        });
+                    }
+
+                    return Task.FromResult<ApprovalRequestDto?>(appDto);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("No se encontró o falló la consulta de la solicitud #{Code} en SAP: {Error}", code, ex.Message);
+                    return Task.FromResult<ApprovalRequestDto?>(null);
+                }
+                finally
+                {
+                    if (appReq != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appReq);
+                    if (appParams != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appParams);
+                    if (appService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appService);
+                    if (compService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(compService);
+                }
+            });
+        }
+
+        public async Task<IEnumerable<ApprovalRequestDto>> GetApprovalRequestsFilteredAsync(UserSession session, ApprovalRequestFilterDto filter)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Recordset? oRs = null;
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    var whereClauses = new List<string>();
+
+                    if (filter.OriginatorID.HasValue && filter.OriginatorID.Value > 0)
+                        whereClauses.Add($"T0.\"OwnerID\" = {filter.OriginatorID.Value}");
+
+                    if (filter.DraftEntry.HasValue && filter.DraftEntry.Value > 0)
+                        whereClauses.Add($"T0.\"DraftEntry\" = {filter.DraftEntry.Value}");
+
+                    if (!string.IsNullOrWhiteSpace(filter.ObjectType))
+                        whereClauses.Add($"T0.\"ObjType\" = '{filter.ObjectType.Trim()}'");
+
+                    if (!string.IsNullOrWhiteSpace(filter.Status))
+                    {
+                        var statusChar = filter.Status.ToUpperInvariant() switch
+                        {
+                            "ARSAPPROVED" or "APPROVED" or "Y" => "Y",
+                            "ARSNOTAPPROVED" or "NOTAPPROVED" or "REJECTED" or "N" => "N",
+                            "ARSCANCELED" or "CANCELED" or "C" => "C",
+                            "ARSGENERATED" or "GENERATED" or "A" => "A",
+                            _ => "W"
+                        };
+                        whereClauses.Add($"T0.\"Status\" = '{statusChar}'");
+                    }
+
+                    if (filter.FromDate.HasValue)
+                        whereClauses.Add($"T0.\"DocDate\" >= '{filter.FromDate.Value:yyyy-MM-dd}'");
+
+                    if (filter.ToDate.HasValue)
+                        whereClauses.Add($"T0.\"DocDate\" <= '{filter.ToDate.Value:yyyy-MM-dd}'");
+
+                    string sql;
+                    if (filter.UserID.HasValue && filter.UserID.Value > 0)
+                    {
+                        whereClauses.Add($"T1.\"UserID\" = {filter.UserID.Value}");
+                        string whereSql = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+                        sql = $"SELECT DISTINCT TOP 100 T0.\"WddCode\", T0.\"WtmCode\", T0.\"ObjType\", T0.\"DocEntry\", T0.\"Status\", T0.\"Remarks\", T0.\"CurrStep\", T0.\"OwnerID\", T0.\"DocDate\", T0.\"DocTime\", T0.\"DraftEntry\", T0.\"DraftType\", T0.\"IsDraft\" FROM \"OWDD\" T0 INNER JOIN \"WDD1\" T1 ON T0.\"WddCode\" = T1.\"WddCode\" {whereSql} ORDER BY T0.\"WddCode\" DESC";
+                    }
+                    else
+                    {
+                        string whereSql = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+                        sql = $"SELECT TOP 100 T0.\"WddCode\", T0.\"WtmCode\", T0.\"ObjType\", T0.\"DocEntry\", T0.\"Status\", T0.\"Remarks\", T0.\"CurrStep\", T0.\"OwnerID\", T0.\"DocDate\", T0.\"DocTime\", T0.\"DraftEntry\", T0.\"DraftType\", T0.\"IsDraft\" FROM \"OWDD\" T0 {whereSql} ORDER BY T0.\"WddCode\" DESC";
+                    }
+
+                    oRs.DoQuery(sql);
+                    var list = new List<ApprovalRequestDto>();
+
+                    while (!oRs.EoF)
+                    {
+                        list.Add(new ApprovalRequestDto
+                        {
+                            Code = Convert.ToInt32(oRs.Fields.Item("WddCode").Value),
+                            ApprovalTemplatesID = oRs.Fields.Item("WtmCode").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("WtmCode").Value),
+                            ObjectType = oRs.Fields.Item("ObjType").Value?.ToString()?.Trim(),
+                            IsDraft = oRs.Fields.Item("IsDraft").Value?.ToString()?.Trim() ?? "Y",
+                            ObjectEntry = oRs.Fields.Item("DocEntry").Value is DBNull ? null : (Convert.ToInt32(oRs.Fields.Item("DocEntry").Value) == 0 ? null : Convert.ToInt32(oRs.Fields.Item("DocEntry").Value)),
+                            Status = MapApprovalStatus(oRs.Fields.Item("Status").Value?.ToString()?.Trim()),
+                            Remarks = oRs.Fields.Item("Remarks").Value?.ToString(),
+                            CurrentStage = oRs.Fields.Item("CurrStep").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("CurrStep").Value),
+                            OriginatorID = oRs.Fields.Item("OwnerID").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("OwnerID").Value),
+                            CreationDate = FormatSapDate(oRs.Fields.Item("DocDate").Value),
+                            CreationTime = FormatSapTime(oRs.Fields.Item("DocTime").Value),
+                            DraftEntry = oRs.Fields.Item("DraftEntry").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("DraftEntry").Value),
+                            DraftType = oRs.Fields.Item("DraftType").Value?.ToString()?.Trim()
+                        });
+                        oRs.MoveNext();
+                    }
+
+                    return Task.FromResult<IEnumerable<ApprovalRequestDto>>(list);
+                }
+                finally
+                {
+                    if (oRs != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        Marshal.ReleaseComObject(oRs);
+                    }
+                }
+            });
+        }
+
+        public async Task<(bool Success, int Code, string? ErrorMessage)> UpdateApprovalRequestAsync(UserSession session, int code, UpdateApprovalRequestDto dto)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Actualizando Solicitud de Aprobación #{Code} en SAP | DB: {DB} | Usuario: {User} | Operador: {AuditUser}",
+                code, session.CompanyDB, session.UserName, session.AuditUser ?? "N/A");
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                CompanyService? compService = null;
+                ApprovalRequestsService? appService = null;
+                ApprovalRequestParams? appParams = null;
+                ApprovalRequest? appReq = null;
+
+                try
+                {
+                    compService = company.GetCompanyService();
+                    appService = (ApprovalRequestsService)compService.GetBusinessService(ServiceTypes.ApprovalRequestsService);
+                    appParams = (ApprovalRequestParams)appService.GetDataInterface(ApprovalRequestsServiceDataInterfaces.arsApprovalRequestParams);
+                    appParams.Code = code;
+
+                    appReq = appService.GetApprovalRequest(appParams);
+
+                    // Registrar Decisiones de Autorización si vienen en el payload
+                    if (dto.ApprovalRequestDecisions != null && dto.ApprovalRequestDecisions.Count > 0)
+                    {
+                        var decisions = appReq.ApprovalRequestDecisions;
+                        foreach (var dec in dto.ApprovalRequestDecisions)
+                        {
+                            var decisionItem = decisions.Add();
+                            if (!string.IsNullOrWhiteSpace(dec.ApproverUserName))
+                                decisionItem.ApproverUserName = dec.ApproverUserName;
+                            else if (!string.IsNullOrWhiteSpace(session.UserName))
+                                decisionItem.ApproverUserName = session.UserName;
+
+                            if (!string.IsNullOrWhiteSpace(dec.ApproverPassword))
+                                decisionItem.ApproverPassword = dec.ApproverPassword;
+                            else if (!string.IsNullOrWhiteSpace(session.Password))
+                                decisionItem.ApproverPassword = session.Password;
+
+                            if (!string.IsNullOrWhiteSpace(dec.Remarks))
+                                decisionItem.Remarks = dec.Remarks;
+
+                            var statusDec = dec.Status?.ToUpperInvariant();
+                            decisionItem.Status = (statusDec == "Y" || statusDec == "ARDAPPROVED" || statusDec == "APPROVED")
+                                ? BoApprovalRequestDecisionEnum.ardApproved
+                                : (statusDec == "N" || statusDec == "ARDNOTAPPROVED" || statusDec == "NOTAPPROVED" || statusDec == "REJECTED")
+                                    ? BoApprovalRequestDecisionEnum.ardNotApproved
+                                    : BoApprovalRequestDecisionEnum.ardPending;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(dto.Status))
+                    {
+                        var decisionItem = appReq.ApprovalRequestDecisions.Add();
+                        decisionItem.ApproverUserName = session.UserName;
+                        decisionItem.ApproverPassword = session.Password;
+                        if (!string.IsNullOrWhiteSpace(dto.Remarks))
+                            decisionItem.Remarks = dto.Remarks;
+
+                        var statusDec = dto.Status.ToUpperInvariant();
+                        decisionItem.Status = (statusDec == "Y" || statusDec == "ARSAPPROVED" || statusDec == "APPROVED" || statusDec == "ARDAPPROVED")
+                            ? BoApprovalRequestDecisionEnum.ardApproved
+                            : (statusDec == "N" || statusDec == "ARSNOTAPPROVED" || statusDec == "NOTAPPROVED" || statusDec == "REJECTED" || statusDec == "ARDNOTAPPROVED")
+                                ? BoApprovalRequestDecisionEnum.ardNotApproved
+                                : BoApprovalRequestDecisionEnum.ardPending;
+                    }
+
+                    appService.UpdateRequest(appReq);
+                    _logger.LogInformation("Solicitud de aprobación #{Code} actualizada con éxito en SAP.", code);
+                    return Task.FromResult((true, code, (string?)null));
+                }
+                catch (Exception ex)
+                {
+                    company.GetLastError(out int lastErrorCode, out string lastErrorDescription);
+                    string errorMsg = !string.IsNullOrEmpty(lastErrorDescription) ? $"Error SAP ({lastErrorCode}): {lastErrorDescription}" : ex.Message;
+                    _logger.LogError(ex, "Fallo al actualizar solicitud de aprobación #{Code} en SAP: {Error}", code, errorMsg);
+                    return Task.FromResult((false, code, (string?)errorMsg));
+                }
+                finally
+                {
+                    if (appReq != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appReq);
+                    if (appParams != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appParams);
+                    if (appService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(appService);
+                    if (compService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                        Marshal.ReleaseComObject(compService);
+                }
+            });
+        }
+
+        #endregion
+
+        #region Drafts (Gestión de Documentos Preliminares / Borradores)
+
+        public async Task<DraftDto?> GetDraftAsync(UserSession session, int docEntry)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Consultando Borrador #{DocEntry} en SAP | DB: {DB} | Usuario: {User}",
+                docEntry, session.CompanyDB, session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Documents? oDraft = null;
+                try
+                {
+                    oDraft = (Documents)company.GetBusinessObject(BoObjectTypes.oDrafts);
+
+                    if (!oDraft.GetByKey(docEntry))
+                    {
+                        return Task.FromResult<DraftDto?>(null);
+                    }
+
+                    var draftDto = new DraftDto
+                    {
+                        DocEntry = oDraft.DocEntry,
+                        DocNum = oDraft.DocNum,
+                        DocType = oDraft.DocType == BoDocumentTypes.dDocument_Items ? "dDocument_Items" : "dDocument_Service",
+                        DocObjectCode = oDraft.DocObjectCodeEx.ToString(),
+                        DocDate = FormatSapDate(oDraft.DocDate),
+                        DocDueDate = FormatSapDate(oDraft.DocDueDate),
+                        TaxDate = FormatSapDate(oDraft.TaxDate),
+                        CardCode = oDraft.CardCode,
+                        CardName = oDraft.CardName,
+                        Address = oDraft.Address,
+                        Address2 = oDraft.Address2,
+                        NumAtCard = oDraft.NumAtCard,
+                        DocTotal = (decimal)oDraft.DocTotal,
+                        DocTotalSys = (decimal)oDraft.DocTotalSys,
+                        DocTotalFc = (decimal)oDraft.DocTotalFc,
+                        DocCurrency = oDraft.DocCurrency,
+                        DocRate = (decimal)oDraft.DocRate,
+                        VatSum = (decimal)oDraft.VatSum,
+                        DiscountPercent = (decimal)oDraft.DiscountPercent,
+                        Comments = oDraft.Comments,
+                        JournalMemo = oDraft.JournalMemo,
+                        PaymentGroupCode = oDraft.PaymentGroupCode,
+                        Series = oDraft.Series,
+                        AttachmentEntry = oDraft.AttachmentEntry > 0 ? oDraft.AttachmentEntry : null,
+                        DocumentStatus = oDraft.DocumentStatus == BoStatus.bost_Open ? "bost_Open" : "bost_Close",
+                        AuthorizationStatus = oDraft.AuthorizationStatus switch
+                        {
+                            DocumentAuthorizationStatusEnum.dasApproved => "dasApproved",
+                            DocumentAuthorizationStatusEnum.dasPending => "dasPending",
+                            DocumentAuthorizationStatusEnum.dasRejected => "dasRejected",
+                            DocumentAuthorizationStatusEnum.dasGenerated => "dasGenerated",
+                            DocumentAuthorizationStatusEnum.dasGeneratedbyAuthorizer => "dasGeneratedbyAuthorizer",
+                            DocumentAuthorizationStatusEnum.dasCancelled => "dasCancelled",
+                            _ => "dasWithout"
+                        },
+                        Confirmed = oDraft.Confirmed == BoYesNoEnum.tYES ? "tYES" : "tNO",
+                        UserSign = oDraft.UserSign > 0 ? oDraft.UserSign : null,
+                        FederalTaxID = oDraft.FederalTaxID,
+                        CreationDate = FormatSapDate(oDraft.CreationDate)
+                    };
+
+                    // Mapear UDFs de Cabecera
+                    try
+                    {
+                        var fields = oDraft.UserFields.Fields;
+                        for (int i = 0; i < fields.Count; i++)
+                        {
+                            var f = fields.Item(i);
+                            var fname = f.Name.StartsWith("U_") ? f.Name : $"U_{f.Name}";
+                            draftDto.UserFields[fname] = f.Value is DateTime dt ? FormatSapDate(dt) : f.Value;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Aviso UDFs Borrador: {Message}", ex.Message);
+                    }
+
+                    // Mapear Líneas de Detalle (DocumentLines)
+                    var lines = oDraft.Lines;
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        lines.SetCurrentLine(i);
+                        var lineDto = new DraftDocumentLineDto
+                        {
+                            LineNum = lines.LineNum,
+                            ItemCode = lines.ItemCode,
+                            ItemDescription = lines.ItemDescription,
+                            Quantity = (decimal)lines.Quantity,
+                            Price = (decimal)lines.Price,
+                            PriceAfterVAT = (decimal)lines.PriceAfterVAT,
+                            Currency = lines.Currency,
+                            DiscountPercent = (decimal)lines.DiscountPercent,
+                            WarehouseCode = lines.WarehouseCode,
+                            AccountCode = lines.AccountCode,
+                            CostingCode = lines.CostingCode,
+                            CostingCode2 = lines.CostingCode2,
+                            CostingCode3 = lines.CostingCode3,
+                            CostingCode4 = lines.CostingCode4,
+                            CostingCode5 = lines.CostingCode5,
+                            ProjectCode = lines.ProjectCode,
+                            TaxCode = lines.TaxCode,
+                            VatGroup = lines.VatGroup,
+                            LineTotal = (decimal)lines.LineTotal,
+                            GrossTotal = (decimal)lines.GrossTotal,
+                            GrossTotalSC = (decimal)lines.GrossTotalSC,
+                            TaxTotal = (decimal)lines.TaxTotal,
+                            TaxPercentagePerRow = (decimal)lines.TaxPercentagePerRow,
+                            MeasureUnit = lines.MeasureUnit,
+                            UoMCode = lines.UoMCode,
+                            FreeText = lines.FreeText,
+                            LineStatus = lines.LineStatus == BoStatus.bost_Open ? "bost_Open" : "bost_Close"
+                        };
+
+                        // UDFs a nivel de Línea
+                        try
+                        {
+                            var lfields = lines.UserFields.Fields;
+                            for (int u = 0; u < lfields.Count; u++)
+                            {
+                                var lf = lfields.Item(u);
+                                var lfname = lf.Name.StartsWith("U_") ? lf.Name : $"U_{lf.Name}";
+                                lineDto.UserFields[lfname] = lf.Value is DateTime ldt ? FormatSapDate(ldt) : lf.Value;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug("Aviso UDFs Línea Borrador: {Message}", ex.Message);
+                        }
+
+                        draftDto.DocumentLines.Add(lineDto);
+                    }
+
+                    // Mapear AddressExtension
+                    try
+                    {
+                        var addrExt = oDraft.AddressExtension;
+                        if (addrExt != null)
+                        {
+                            draftDto.AddressExtension = new DraftAddressExtensionDto
+                            {
+                                DocEntry = draftDto.DocEntry,
+                                ShipToStreet = addrExt.ShipToStreet,
+                                ShipToCity = addrExt.ShipToCity,
+                                ShipToState = addrExt.ShipToState,
+                                ShipToCountry = addrExt.ShipToCountry,
+                                BillToStreet = addrExt.BillToStreet,
+                                BillToCity = addrExt.BillToCity,
+                                BillToState = addrExt.BillToState,
+                                BillToCountry = addrExt.BillToCountry
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Aviso AddressExtension Borrador: {Message}", ex.Message);
+                    }
+
+                    // Mapear TaxExtension
+                    try
+                    {
+                        var taxExt = oDraft.TaxExtension;
+                        if (taxExt != null)
+                        {
+                            draftDto.TaxExtension = new DraftTaxExtensionDto
+                            {
+                                DocEntry = draftDto.DocEntry,
+                                TaxId0 = taxExt.TaxId0,
+                                StreetS = taxExt.StreetS,
+                                CityS = taxExt.CityS,
+                                StateS = taxExt.StateS,
+                                CountryS = taxExt.CountryS,
+                                MainUsage = taxExt.MainUsage.ToString()
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Aviso TaxExtension Borrador: {Message}", ex.Message);
+                    }
+
+                    return Task.FromResult<DraftDto?>(draftDto);
+                }
+                finally
+                {
+                    if (oDraft != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        Marshal.ReleaseComObject(oDraft);
+                    }
+                }
+            });
+        }
+
+        public async Task<IEnumerable<DraftDto>> GetDraftsFilteredAsync(UserSession session, DraftFilterDto filter)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Recordset? oRs = null;
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    var whereClauses = new List<string>();
+
+                    if (!string.IsNullOrWhiteSpace(filter.DocObjectCode))
+                        whereClauses.Add($"\"ObjType\" = '{filter.DocObjectCode.Trim()}'");
+
+                    if (!string.IsNullOrWhiteSpace(filter.CardCode))
+                        whereClauses.Add($"\"CardCode\" = '{filter.CardCode.Trim()}'");
+
+                    if (!string.IsNullOrWhiteSpace(filter.DocumentStatus))
+                    {
+                        var stChar = string.Equals(filter.DocumentStatus, "bost_Close", StringComparison.OrdinalIgnoreCase) || filter.DocumentStatus == "C" ? "C" : "O";
+                        whereClauses.Add($"\"DocStatus\" = '{stChar}'");
+                    }
+
+                    if (filter.FromDate.HasValue)
+                        whereClauses.Add($"\"DocDate\" >= '{filter.FromDate.Value:yyyy-MM-dd}'");
+
+                    if (filter.ToDate.HasValue)
+                        whereClauses.Add($"\"DocDate\" <= '{filter.ToDate.Value:yyyy-MM-dd}'");
+
+                    string whereSql = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+                    string sql = $"SELECT TOP 100 \"DocEntry\", \"DocNum\", \"DocType\", \"ObjType\", \"DocDate\", \"DocDueDate\", \"TaxDate\", \"CardCode\", \"CardName\", \"DocTotal\", \"DocCur\", \"Comments\", \"DocStatus\", \"Series\", \"AtcEntry\", \"UserSign\", \"Confirmed\" FROM \"ODRF\" {whereSql} ORDER BY \"DocEntry\" DESC";
+
+                    oRs.DoQuery(sql);
+                    var list = new List<DraftDto>();
+
+                    while (!oRs.EoF)
+                    {
+                        list.Add(new DraftDto
+                        {
+                            DocEntry = Convert.ToInt32(oRs.Fields.Item("DocEntry").Value),
+                            DocNum = Convert.ToInt32(oRs.Fields.Item("DocNum").Value),
+                            DocType = oRs.Fields.Item("DocType").Value?.ToString() == "I" ? "dDocument_Items" : "dDocument_Service",
+                            DocObjectCode = oRs.Fields.Item("ObjType").Value?.ToString()?.Trim(),
+                            DocDate = FormatSapDate(oRs.Fields.Item("DocDate").Value),
+                            DocDueDate = FormatSapDate(oRs.Fields.Item("DocDueDate").Value),
+                            TaxDate = FormatSapDate(oRs.Fields.Item("TaxDate").Value),
+                            CardCode = oRs.Fields.Item("CardCode").Value?.ToString(),
+                            CardName = oRs.Fields.Item("CardName").Value?.ToString(),
+                            DocTotal = Convert.ToDecimal(oRs.Fields.Item("DocTotal").Value),
+                            DocCurrency = oRs.Fields.Item("DocCur").Value?.ToString(),
+                            Comments = oRs.Fields.Item("Comments").Value?.ToString(),
+                            DocumentStatus = oRs.Fields.Item("DocStatus").Value?.ToString() == "O" ? "bost_Open" : "bost_Close",
+                            Confirmed = oRs.Fields.Item("Confirmed").Value?.ToString() == "Y" ? "tYES" : "tNO",
+                            Series = oRs.Fields.Item("Series").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("Series").Value),
+                            AttachmentEntry = oRs.Fields.Item("AtcEntry").Value is DBNull ? null : (Convert.ToInt32(oRs.Fields.Item("AtcEntry").Value) == 0 ? null : Convert.ToInt32(oRs.Fields.Item("AtcEntry").Value)),
+                            UserSign = oRs.Fields.Item("UserSign").Value is DBNull ? null : Convert.ToInt32(oRs.Fields.Item("UserSign").Value)
+                        });
+                        oRs.MoveNext();
+                    }
+
+                    return Task.FromResult<IEnumerable<DraftDto>>(list);
+                }
+                finally
+                {
+                    if (oRs != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        Marshal.ReleaseComObject(oRs);
+                    }
+                }
+            });
+        }
+
+        public async Task<(bool Success, int DocEntry, int? GeneratedDocEntry, string? ErrorMessage)> SaveDraftToDocumentAsync(UserSession session, int docEntry)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Convirtiendo Borrador #{DocEntry} a Documento Real en SAP | DB: {DB} | Usuario: {User} | Operador: {AuditUser}",
+                docEntry, session.CompanyDB, session.UserName, session.AuditUser ?? "N/A");
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Documents? oDraft = null;
+                try
+                {
+                    oDraft = (Documents)company.GetBusinessObject(BoObjectTypes.oDrafts);
+
+                    if (!oDraft.GetByKey(docEntry))
+                    {
+                        return Task.FromResult((false, docEntry, (int?)null, (string?)$"El borrador con DocEntry #{docEntry} no existe en SAP."));
+                    }
+
+                    int saveResult = oDraft.SaveDraftToDocument();
+
+                    if (saveResult == 0)
+                    {
+                        string newKeyStr = company.GetNewObjectKey();
+                        int.TryParse(newKeyStr, out int generatedDocEntry);
+                        _logger.LogInformation("Borrador #{DocEntry} convertido exitosamente a Documento Real #{NewDocEntry} en SAP.", docEntry, generatedDocEntry);
+                        return Task.FromResult((true, docEntry, (int?)generatedDocEntry, (string?)null));
+                    }
+                    else
+                    {
+                        company.GetLastError(out int lastErrorCode, out string lastErrorDescription);
+                        _logger.LogError("Fallo al convertir borrador #{DocEntry} a documento real en SAP ({Code}): {Error}", docEntry, lastErrorCode, lastErrorDescription);
+                        return Task.FromResult((false, docEntry, (int?)null, (string?)$"Error SAP ({lastErrorCode}): {lastErrorDescription}"));
+                    }
+                }
+                finally
+                {
+                    if (oDraft != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                    {
+                        Marshal.ReleaseComObject(oDraft);
+                    }
+                }
+            });
+        }
+
+        #endregion
+
+        #region Helpers de Formato y Mapeo SAP
+
+        private static string? MapApprovalStatus(string? status)
+        {
+            return status?.ToUpperInvariant() switch
+            {
+                "Y" => "arsApproved",
+                "N" => "arsNotApproved",
+                "W" => "arsPending",
+                "C" => "arsCanceled",
+                "A" => "arsGenerated",
+                _ => status
+            };
+        }
+
+        private static string? MapLineStatus(string? status)
+        {
+            return status?.ToUpperInvariant() switch
+            {
+                "Y" => "ardApproved",
+                "N" => "ardNotApproved",
+                "W" => "ardPending",
+                _ => status
+            };
+        }
+
+        private static string? FormatSapDate(object? sapVal)
+        {
+            if (sapVal == null || sapVal is DBNull) return null;
+            if (sapVal is DateTime dt)
+            {
+                if (dt <= new DateTime(1900, 1, 1) || dt == DateTime.MinValue) return null;
+                return dt.ToString("yyyy-MM-dd");
+            }
+            return sapVal.ToString();
+        }
+
+        private static string? FormatSapTime(object? sapVal)
+        {
+            if (sapVal == null || sapVal is DBNull) return null;
+            if (int.TryParse(sapVal.ToString(), out int timeInt))
+            {
+                string tStr = timeInt.ToString("D6");
+                if (tStr.Length >= 6)
+                {
+                    return $"{tStr.Substring(0, 2)}:{tStr.Substring(2, 2)}:{tStr.Substring(4, 2)}";
+                }
+                if (tStr.Length >= 4)
+                {
+                    return $"{tStr.Substring(0, 2)}:{tStr.Substring(2, 2)}:00";
+                }
+            }
+            return sapVal.ToString();
+        }
+
         private static DateTime? CleanSapDate(DateTime dt)
         {
             if (dt <= new DateTime(1900, 1, 1) || dt == DateTime.MinValue)
@@ -1104,5 +1757,7 @@ namespace SapDiApi.Bridge.Services.Sap
             }
             return dt;
         }
+
+        #endregion
     }
 }

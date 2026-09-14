@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using SapDiApi.Bridge.Infrastructure.Security;
 using SapDiApi.Bridge.Models.Auth;
 
 namespace SapDiApi.Bridge.Infrastructure.Logging
@@ -42,12 +43,13 @@ namespace SapDiApi.Bridge.Infrastructure.Logging
             var clientMachine = context.Request.Headers["User-Agent"].FirstOrDefault() ?? context.Request.Headers["Host"].FirstOrDefault() ?? "Unknown-Client";
             
             var userSession = context.Items["UserSession"] as UserSession;
+            var apiClient = context.Items["ApiClient"] as ApiClientConfig;
             var sapUser = userSession?.UserName ?? "Anonymous";
             var companyDb = userSession?.CompanyDB ?? "N/A";
             var sessionId = userSession?.SessionId ?? "-";
             var operatorUser = !string.IsNullOrWhiteSpace(auditUserHeader) ? auditUserHeader : (userSession?.AuditUser ?? "-");
-            var operatorApp = !string.IsNullOrWhiteSpace(auditAppHeader) ? auditAppHeader : (userSession?.AuditApp ?? "-");
-            var mode = userSession?.ExecutionMode ?? "Standard";
+            var operatorApp = !string.IsNullOrWhiteSpace(auditAppHeader) ? auditAppHeader : (userSession?.AuditApp ?? apiClient?.Name ?? "-");
+            var mode = userSession?.ExecutionMode ?? (apiClient != null ? "ApiKey" : "Standard");
 
             var method = context.Request.Method;
             var fullPath = $"{path}{context.Request.QueryString}";

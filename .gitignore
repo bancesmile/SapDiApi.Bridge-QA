@@ -49,6 +49,7 @@ _ReSharper*/
 # 2. Entornos de Desarrollo e IDEs (Visual Studio / VS Code / Rider)
 # --------------------------------------------------
 .vs/
+doc/
 .idea/
 .vscode/*
 !.vscode/settings.json
@@ -124,3 +125,8 @@ UpgradeLog*.htm
 # --------------------------------------------------
 # DLL COM de SAP Business One necesaria para construir la solución
 !**/lib/Interop.SAPbobsCOM.dll
+/.agents/rules
+/.github
+/.cursorrules
+/AGENTS.md
+/README.md

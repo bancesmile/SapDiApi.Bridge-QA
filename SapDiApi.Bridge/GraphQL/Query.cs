@@ -1,10 +1,14 @@
 using HotChocolate;
 using Microsoft.Extensions.Options;
 using SapDiApi.Bridge.Infrastructure.Security;
+using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.BusinessPartners;
+using SapDiApi.Bridge.Models.Drafts;
 using SapDiApi.Bridge.Models.Health;
+using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
+using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
 
 namespace SapDiApi.Bridge.GraphQL
@@ -37,6 +41,62 @@ namespace SapDiApi.Bridge.GraphQL
         }
 
         /// <summary>
+        /// Consulta GraphQL para obtener Solicitudes de Aprobación con filtros dinámicos.
+        /// </summary>
+        public async Task<IEnumerable<ApprovalRequestDto>> GetApprovalRequests(
+            ApprovalRequestFilterDto? filter,
+            [Service] IApprovalRequestService approvalService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await approvalService.GetFilteredAsync(filter ?? new ApprovalRequestFilterDto(), session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL por código de Solicitud de Aprobación en SAP Business One.
+        /// </summary>
+        public async Task<ApprovalRequestDto?> GetApprovalRequestByCode(
+            int code,
+            [Service] IApprovalRequestService approvalService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await approvalService.GetByCodeAsync(code, session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL para listar documentos preliminares / borradores (Drafts) en SAP Business One.
+        /// </summary>
+        public async Task<IEnumerable<DraftDto>> GetDrafts(
+            DraftFilterDto? filter,
+            [Service] IDraftService draftService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await draftService.GetFilteredAsync(filter ?? new DraftFilterDto(), session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL de un documento preliminar / borrador por DocEntry en SAP Business One.
+        /// </summary>
+        public async Task<DraftDto?> GetDraftByDocEntry(
+            int docEntry,
+            [Service] IDraftService draftService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await draftService.GetByDocEntryAsync(docEntry, session);
+        }
+
+        /// <summary>
         /// Consulta el estado de salud, uptime y métricas del sistema BridgeSap.
         /// </summary>
         public HealthStatusDto GetHealth([Service] IHealthService healthService)
@@ -53,3 +113,4 @@ namespace SapDiApi.Bridge.GraphQL
         }
     }
 }
+

@@ -46,28 +46,101 @@ namespace SapDiApi.Bridge.GraphQL
                     }
                 }
 
-                // 4. Soporte para llave maestra X-Api-Key
-                if (session == null && httpContext.Request.Headers.TryGetValue(apiKeyOptions.Value.HeaderName, out var apiKeyHeader))
+                // 4. Soporte para llave maestra X-Api-Key (Service Account / Multi-empresa)
+                if (session == null)
                 {
-                    var apiKey = apiKeyHeader.ToString();
-                    if (apiKeyOptions.Value.IsValidKey(apiKey))
+                    string? apiKey = null;
+                    if (httpContext.Request.Headers.TryGetValue(apiKeyOptions.Value.HeaderName, out var apiKeyHeader))
                     {
-                        session = new UserSession
+                        apiKey = apiKeyHeader.ToString();
+                    }
+                    else if (httpContext.Request.Headers.TryGetValue("Authorization", out var authApiKeyHeader))
+                    {
+                        var str = authApiKeyHeader.ToString();
+                        if (str.StartsWith("ApiKey ", StringComparison.OrdinalIgnoreCase))
                         {
-                            SessionId = "api-key-master-session",
-                            CompanyDB = "Master-ApiKey",
-                            UserName = "system-api-key"
-                        };
+                            apiKey = str.Substring("ApiKey ".Length).Trim();
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(apiKey))
+                    {
+                        var client = apiKeyOptions.Value.GetClient(apiKey);
+                        if (client != null)
+                        {
+                            var config = httpContext.RequestServices.GetService<IConfiguration>();
+
+                            // Resolver CompanyDB dinámico
+                            string? companyDb = null;
+                            if (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
+                                httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
+                                httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader))
+                            {
+                                companyDb = dbHeader.FirstOrDefault();
+                            }
+
+                            if (string.IsNullOrWhiteSpace(companyDb) &&
+                                (httpContext.Request.Query.TryGetValue("companyDB", out var queryDb) ||
+                                 httpContext.Request.Query.TryGetValue("CompanyDB", out queryDb) ||
+                                 httpContext.Request.Query.TryGetValue("company_db", out queryDb)))
+                            {
+                                companyDb = queryDb.FirstOrDefault();
+                            }
+
+                            if (string.IsNullOrWhiteSpace(companyDb))
+                            {
+                                companyDb = config?["SapSettings:DefaultCompanyDB"] ?? string.Empty;
+                            }
+
+                            if (!apiKeyOptions.Value.IsCompanyAllowed(client, companyDb))
+                            {
+                                throw new GraphQLException($"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP '{companyDb}'.");
+                            }
+
+                            var serviceUser = config?["SapSettings:ServiceUserName"]
+                                ?? config?["SapSettings:DefaultUserName"]
+                                ?? "manager";
+
+                            var servicePassword = config?["SapSettings:ServicePassword"]
+                                ?? config?["SapSettings:DefaultPassword"]
+                                ?? string.Empty;
+
+                            var auditUser = httpContext.Request.Headers["X-Audit-User"].FirstOrDefault()
+                                ?? httpContext.Request.Headers["AuditUser"].FirstOrDefault()
+                                ?? "graphql-portal-user";
+
+                            var customApp = httpContext.Request.Headers["X-Audit-App"].FirstOrDefault()
+                                ?? httpContext.Request.Headers["AuditApp"].FirstOrDefault();
+
+                            var auditApp = !string.IsNullOrWhiteSpace(customApp)
+                                ? $"{client.Name} ({customApp})"
+                                : client.Name;
+
+                            session = new UserSession
+                            {
+                                SessionId = $"api-key-{client.Id}-{Guid.NewGuid():N}",
+                                CompanyDB = companyDb,
+                                UserName = serviceUser,
+                                Password = servicePassword,
+                                AuditUser = auditUser,
+                                AuditApp = auditApp,
+                                ExecutionMode = "ServicePool"
+                            };
+                        }
                     }
                 }
             }
 
             if (session == null)
             {
-                throw new GraphQLException("Sesión no válida o ausente. Inicie sesión en '/api/v1/Login' y proporcione la cabecera 'B1SESSION'.");
+                throw new GraphQLException("Sesión no válida o ausente. Inicie sesión en '/api/v1/Login' o proporcione 'X-Api-Key'.");
             }
 
-            sessionManager.RefreshSession(session.SessionId);
+            if (session.ExecutionMode != "ServicePool")
+            {
+                sessionManager.RefreshSession(session.SessionId);
+            }
+
             return session;
         }
     }

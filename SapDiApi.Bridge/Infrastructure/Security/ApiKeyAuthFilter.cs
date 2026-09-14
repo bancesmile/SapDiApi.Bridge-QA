@@ -42,12 +42,13 @@ namespace SapDiApi.Bridge.Infrastructure.Security
             }
 
             // 3. Validar si la llave fue provista y si es válida
-            if (string.IsNullOrWhiteSpace(extractedApiKey) || !_options.IsValidKey(extractedApiKey))
+            var client = _options.GetClient(extractedApiKey ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(extractedApiKey) || client == null)
             {
                 _logger.LogWarning("Intento de acceso no autorizado a {Path} desde {IP}. Llave recibida: {HasKey}",
                     httpContext.Request.Path,
                     httpContext.Connection.RemoteIpAddress,
-                    string.IsNullOrEmpty(extractedApiKey) ? "Ausente" : "Inválida");
+                    string.IsNullOrEmpty(extractedApiKey) ? "Ausente" : "Inválida o Revocada");
 
                 var errorPayload = new ApiErrorResponse
                 {
@@ -55,7 +56,7 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                     Error = "No autorizado",
                     Details = string.IsNullOrEmpty(extractedApiKey)
                         ? $"Se requiere una llave de acceso válida en el encabezado '{_options.HeaderName}' o 'Authorization: ApiKey <llave>'."
-                        : "La llave de acceso provista es inválida o no cuenta con permisos.",
+                        : "La llave de acceso provista es inválida o no cuenta con permisos activos.",
                     StatusCode = StatusCodes.Status401Unauthorized,
                     TimestampUtc = DateTime.UtcNow
                 };
@@ -68,6 +69,7 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                 return Task.CompletedTask;
             }
 
+            httpContext.Items["ApiClient"] = client;
             return Task.CompletedTask;
         }
     }
