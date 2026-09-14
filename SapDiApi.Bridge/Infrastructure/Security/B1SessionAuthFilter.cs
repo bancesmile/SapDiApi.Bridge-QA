@@ -10,12 +10,18 @@ namespace SapDiApi.Bridge.Infrastructure.Security
     {
         private readonly ISessionManager _sessionManager;
         private readonly ApiKeyOptions _apiKeyOptions;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<B1SessionAuthFilter> _logger;
 
-        public B1SessionAuthFilter(ISessionManager sessionManager, IOptions<ApiKeyOptions> apiKeyOptions, ILogger<B1SessionAuthFilter> logger)
+        public B1SessionAuthFilter(
+            ISessionManager sessionManager,
+            IOptions<ApiKeyOptions> apiKeyOptions,
+            IConfiguration configuration,
+            ILogger<B1SessionAuthFilter> logger)
         {
             _sessionManager = sessionManager;
             _apiKeyOptions = apiKeyOptions.Value;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -36,8 +42,9 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                 token = b1Cookie;
             }
 
-            // 3. Buscar en Cabecera Authorization: Bearer <token> o B1SESSION <token>
-            if (string.IsNullOrWhiteSpace(token) && httpContext.Request.Headers.TryGetValue("Authorization", out var authHeader))
+            // 3. Buscar en Cabecera Authorization: Bearer <token> o B1SESSION <token> o ApiKey <key>
+            string? extractedApiKey = null;
+            if (httpContext.Request.Headers.TryGetValue("Authorization", out var authHeader))
             {
                 var authStr = authHeader.ToString();
                 if (authStr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
@@ -48,9 +55,13 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                 {
                     token = authStr.Substring("B1SESSION ".Length).Trim();
                 }
+                else if (authStr.StartsWith("ApiKey ", StringComparison.OrdinalIgnoreCase))
+                {
+                    extractedApiKey = authStr.Substring("ApiKey ".Length).Trim();
+                }
             }
 
-            // Validar sesión contra el SessionManager
+            // Validar sesión contra el SessionManager si viene token B1SESSION
             if (!string.IsNullOrWhiteSpace(token))
             {
                 var session = _sessionManager.GetSession(token);
@@ -65,18 +76,90 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                 }
             }
 
-            // 4. Soporte opcional de llave maestra X-Api-Key si está provista
-            if (httpContext.Request.Headers.TryGetValue(_apiKeyOptions.HeaderName, out var apiKeyHeader))
+            // 4. Soporte de autenticación por X-Api-Key (Service Account / Single License Multi-Empresa)
+            if (string.IsNullOrWhiteSpace(extractedApiKey) && httpContext.Request.Headers.TryGetValue(_apiKeyOptions.HeaderName, out var apiKeyHeader))
             {
-                var apiKey = apiKeyHeader.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(apiKey) && _apiKeyOptions.IsValidKey(apiKey))
+                extractedApiKey = apiKeyHeader.FirstOrDefault();
+            }
+
+            if (!string.IsNullOrWhiteSpace(extractedApiKey))
+            {
+                var client = _apiKeyOptions.GetClient(extractedApiKey);
+                if (client != null)
                 {
+                    // Resolver CompanyDB dinámica: Cabecera -> QueryParam -> appsettings DefaultCompanyDB
+                    string? companyDb = null;
+                    if (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
+                        httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
+                        httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader))
+                    {
+                        companyDb = dbHeader.FirstOrDefault();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(companyDb) &&
+                        (httpContext.Request.Query.TryGetValue("companyDB", out var queryDb) ||
+                         httpContext.Request.Query.TryGetValue("CompanyDB", out queryDb) ||
+                         httpContext.Request.Query.TryGetValue("company_db", out queryDb)))
+                    {
+                        companyDb = queryDb.FirstOrDefault();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(companyDb))
+                    {
+                        companyDb = _configuration["SapSettings:DefaultCompanyDB"] ?? string.Empty;
+                    }
+
+                    // Validar si la aplicación cliente tiene permiso para acceder a esta sociedad
+                    if (!_apiKeyOptions.IsCompanyAllowed(client, companyDb))
+                    {
+                        _logger.LogWarning("Acceso prohibido: La aplicación '{ClientName}' ({ClientId}) no tiene permisos sobre la sociedad '{CompanyDB}'.",
+                            client.Name, client.Id, companyDb);
+
+                        var forbiddenPayload = ServiceLayerErrorResponse.Create(
+                            code: 403,
+                            message: $"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP '{companyDb}'."
+                        );
+
+                        context.Result = new ObjectResult(forbiddenPayload)
+                        {
+                            StatusCode = StatusCodes.Status403Forbidden
+                        };
+
+                        return Task.CompletedTask;
+                    }
+
+                    // Resolver usuario y contraseña de servicio SAP desde appsettings
+                    var serviceUser = _configuration["SapSettings:ServiceUserName"]
+                        ?? _configuration["SapSettings:DefaultUserName"]
+                        ?? "manager";
+
+                    var servicePassword = _configuration["SapSettings:ServicePassword"]
+                        ?? _configuration["SapSettings:DefaultPassword"]
+                        ?? string.Empty;
+
+                    // Auditoría: Identificar usuario operador y la aplicación cliente
+                    var auditUser = httpContext.Request.Headers["X-Audit-User"].FirstOrDefault()
+                        ?? httpContext.Request.Headers["AuditUser"].FirstOrDefault()
+                        ?? "portal-user";
+
+                    var customApp = httpContext.Request.Headers["X-Audit-App"].FirstOrDefault()
+                        ?? httpContext.Request.Headers["AuditApp"].FirstOrDefault();
+
+                    var auditApp = !string.IsNullOrWhiteSpace(customApp)
+                        ? $"{client.Name} ({customApp})"
+                        : client.Name;
+
                     httpContext.Items["UserSession"] = new UserSession
                     {
-                        SessionId = "api-key-master-session",
-                        CompanyDB = "Master-ApiKey",
-                        UserName = "system-api-key"
+                        SessionId = $"api-key-{client.Id}-{Guid.NewGuid():N}",
+                        CompanyDB = companyDb,
+                        UserName = serviceUser,
+                        Password = servicePassword,
+                        AuditUser = auditUser,
+                        AuditApp = auditApp,
+                        ExecutionMode = "ServicePool"
                     };
+
                     return Task.CompletedTask;
                 }
             }
@@ -85,13 +168,13 @@ namespace SapDiApi.Bridge.Infrastructure.Security
             _logger.LogWarning("Acceso no autorizado rechazado en {Path} desde {IP}. Token: {TokenState}",
                 httpContext.Request.Path,
                 httpContext.Connection.RemoteIpAddress,
-                string.IsNullOrEmpty(token) ? "Ausente" : "Invalido/Expirado");
+                string.IsNullOrEmpty(token) && string.IsNullOrEmpty(extractedApiKey) ? "Ausente" : "Invalido/Expirado");
 
             var errorPayload = ServiceLayerErrorResponse.Create(
                 code: 301,
-                message: string.IsNullOrEmpty(token)
-                    ? "Acceso no autorizado. Se requiere iniciar sesión en '/api/v1/Login' y enviar la cabecera 'B1SESSION' o Cookie."
-                    : "Sesión inválida o expirada por inactividad. Por favor inicie sesión nuevamente."
+                message: string.IsNullOrEmpty(token) && string.IsNullOrEmpty(extractedApiKey)
+                    ? $"Acceso no autorizado. Se requiere iniciar sesión en '/api/v1/Login' con 'B1SESSION' o proporcionar el encabezado '{_apiKeyOptions.HeaderName}'."
+                    : "Sesión inválida o llave de acceso no autorizada."
             );
 
             context.Result = new ObjectResult(errorPayload)
