@@ -5,6 +5,7 @@ using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Drafts;
+using SapDiApi.Bridge.Infrastructure.Common;
 using SapDiApi.Bridge.Models.Sap;
 
 namespace SapDiApi.Bridge.Services.Sap
@@ -147,22 +148,31 @@ namespace SapDiApi.Bridge.Services.Sap
                     // Mapeo dinámico de Campos de Usuario (UDF) de SAP
                     try
                     {
-                        var userFields = oBusinessPartner.UserFields.Fields;
-                        for (int i = 0; i < userFields.Count; i++)
+                        var bpUserFields = oBusinessPartner.UserFields;
+                        var userFields = bpUserFields?.Fields;
+                        if (userFields != null)
                         {
-                            var field = userFields.Item(i);
-                            var fieldName = field.Name.StartsWith("U_") ? field.Name : $"U_{field.Name}";
-                            var val = field.Value;
-
-                            if (val is DateTime dtVal)
+                            for (int i = 0; i < userFields.Count; i++)
                             {
-                                bp.UserFields[fieldName] = CleanSapDate(dtVal);
+                                Field? field = null;
+                                try
+                                {
+                                    field = userFields.Item(i);
+                                    if (field != null)
+                                    {
+                                        var fieldName = field.Name.StartsWith("U_") ? field.Name : $"U_{field.Name}";
+                                        var val = field.Value;
+                                        bp.UserFields[fieldName] = (val is DateTime dtVal) ? CleanSapDate(dtVal) : val;
+                                    }
+                                }
+                                finally
+                                {
+                                    ComHelper.Release(field);
+                                }
                             }
-                            else
-                            {
-                                bp.UserFields[fieldName] = val;
-                            }
+                            ComHelper.Release(userFields);
                         }
+                        ComHelper.Release(bpUserFields);
                     }
                     catch (Exception ex)
                     {
@@ -170,85 +180,128 @@ namespace SapDiApi.Bridge.Services.Sap
                     }
 
                     // Mapeo de Direcciones (BPAddresses)
-                    var addresses = oBusinessPartner.Addresses;
-                    for (int i = 0; i < addresses.Count; i++)
+                    try
                     {
-                        addresses.SetCurrentLine(i);
-                        if (!string.IsNullOrEmpty(addresses.AddressName))
+                        var addresses = oBusinessPartner.Addresses;
+                        if (addresses != null)
                         {
-                            bp.BPAddresses.Add(new BPAddressDto
+                            for (int i = 0; i < addresses.Count; i++)
                             {
-                                AddressName = addresses.AddressName,
-                                Street = addresses.Street,
-                                Block = addresses.Block,
-                                City = addresses.City,
-                                State = addresses.State,
-                                Country = addresses.Country,
-                                ZipCode = addresses.ZipCode,
-                                AddressType = addresses.AddressType == BoAddressType.bo_BillTo ? "bo_BillTo" : "bo_ShipTo",
-                                TaxCode = addresses.TaxCode
-                            });
+                                addresses.SetCurrentLine(i);
+                                if (!string.IsNullOrEmpty(addresses.AddressName))
+                                {
+                                    bp.BPAddresses.Add(new BPAddressDto
+                                    {
+                                        AddressName = addresses.AddressName,
+                                        Street = addresses.Street,
+                                        Block = addresses.Block,
+                                        City = addresses.City,
+                                        State = addresses.State,
+                                        Country = addresses.Country,
+                                        ZipCode = addresses.ZipCode,
+                                        AddressType = addresses.AddressType == BoAddressType.bo_BillTo ? "bo_BillTo" : "bo_ShipTo",
+                                        TaxCode = addresses.TaxCode
+                                    });
+                                }
+                            }
+                            ComHelper.Release(addresses);
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Aviso al mapear Direcciones: {Message}", ex.Message);
                     }
 
                     // Mapeo de Contactos (ContactEmployees)
-                    var contacts = oBusinessPartner.ContactEmployees;
-                    for (int i = 0; i < contacts.Count; i++)
+                    try
                     {
-                        contacts.SetCurrentLine(i);
-                        if (!string.IsNullOrEmpty(contacts.Name))
+                        var contacts = oBusinessPartner.ContactEmployees;
+                        if (contacts != null)
                         {
-                            var contactDto = new ContactEmployeeDto
+                            for (int i = 0; i < contacts.Count; i++)
                             {
-                                InternalCode = contacts.InternalCode,
-                                Name = contacts.Name,
-                                FirstName = contacts.FirstName,
-                                LastName = contacts.LastName,
-                                EmailAddress = contacts.E_Mail,
-                                Phone1 = contacts.Phone1,
-                                Position = contacts.Position,
-                                MobilePhone = contacts.MobilePhone
-                            };
-
-                            // UDFs a nivel de Contacto (U_Area, U_Tipo)
-                            try
-                            {
-                                var contactUdfs = contacts.UserFields.Fields;
-                                for (int u = 0; u < contactUdfs.Count; u++)
+                                contacts.SetCurrentLine(i);
+                                if (!string.IsNullOrEmpty(contacts.Name))
                                 {
-                                    var f = contactUdfs.Item(u);
-                                    var fname = f.Name.StartsWith("U_") ? f.Name : $"U_{f.Name}";
-                                    contactDto.UserFields[fname] = f.Value;
+                                    var contactDto = new ContactEmployeeDto
+                                    {
+                                        InternalCode = contacts.InternalCode,
+                                        Name = contacts.Name,
+                                        FirstName = contacts.FirstName,
+                                        LastName = contacts.LastName,
+                                        EmailAddress = contacts.E_Mail,
+                                        Phone1 = contacts.Phone1,
+                                        Position = contacts.Position,
+                                        MobilePhone = contacts.MobilePhone
+                                    };
+
+                                    // UDFs a nivel de Contacto (U_Area, U_Tipo)
+                                    try
+                                    {
+                                        var contactUF = contacts.UserFields;
+                                        var contactUdfs = contactUF?.Fields;
+                                        if (contactUdfs != null)
+                                        {
+                                            for (int u = 0; u < contactUdfs.Count; u++)
+                                            {
+                                                Field? f = null;
+                                                try
+                                                {
+                                                    f = contactUdfs.Item(u);
+                                                    if (f != null)
+                                                    {
+                                                        var fname = f.Name.StartsWith("U_") ? f.Name : $"U_{f.Name}";
+                                                        contactDto.UserFields[fname] = f.Value;
+                                                    }
+                                                }
+                                                finally
+                                                {
+                                                    ComHelper.Release(f);
+                                                }
+                                            }
+                                            ComHelper.Release(contactUdfs);
+                                        }
+                                        ComHelper.Release(contactUF);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogDebug("Aviso UDF Contacto: {Message}", ex.Message);
+                                    }
+
+                                    bp.ContactEmployees.Add(contactDto);
                                 }
                             }
-                            catch (Exception ex)
-                            {
-                                _logger.LogDebug("Aviso UDF Contacto: {Message}", ex.Message);
-                            }
-
-                            bp.ContactEmployees.Add(contactDto);
+                            ComHelper.Release(contacts);
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("Aviso al mapear Contactos: {Message}", ex.Message);
                     }
 
                     // Mapeo de Cuentas Bancarias (BPBankAccounts)
                     try
                     {
                         var bpBankAccounts = oBusinessPartner.BPBankAccounts;
-                        for (int i = 0; i < bpBankAccounts.Count; i++)
+                        if (bpBankAccounts != null)
                         {
-                            bpBankAccounts.SetCurrentLine(i);
-                            if (!string.IsNullOrEmpty(bpBankAccounts.BankCode) || !string.IsNullOrEmpty(bpBankAccounts.AccountNo))
+                            for (int i = 0; i < bpBankAccounts.Count; i++)
                             {
-                                bp.BPBankAccounts.Add(new BPBankAccountDto
+                                bpBankAccounts.SetCurrentLine(i);
+                                if (!string.IsNullOrEmpty(bpBankAccounts.BankCode) || !string.IsNullOrEmpty(bpBankAccounts.AccountNo))
                                 {
-                                    BankCode = bpBankAccounts.BankCode,
-                                    AccountNumber = bpBankAccounts.AccountNo,
-                                    AccountName = bpBankAccounts.AccountName,
-                                    Branch = bpBankAccounts.Branch,
-                                    Country = bpBankAccounts.Country,
-                                    IBAN = bpBankAccounts.IBAN
-                                });
+                                    bp.BPBankAccounts.Add(new BPBankAccountDto
+                                    {
+                                        BankCode = bpBankAccounts.BankCode,
+                                        AccountNumber = bpBankAccounts.AccountNo,
+                                        AccountName = bpBankAccounts.AccountName,
+                                        Branch = bpBankAccounts.Branch,
+                                        Country = bpBankAccounts.Country,
+                                        IBAN = bpBankAccounts.IBAN
+                                    });
+                                }
                             }
+                            ComHelper.Release(bpBankAccounts);
                         }
                     }
                     catch (Exception ex)
@@ -260,16 +313,20 @@ namespace SapDiApi.Bridge.Services.Sap
                     try
                     {
                         var paymentMethods = oBusinessPartner.BPPaymentMethods;
-                        for (int i = 0; i < paymentMethods.Count; i++)
+                        if (paymentMethods != null)
                         {
-                            paymentMethods.SetCurrentLine(i);
-                            if (!string.IsNullOrEmpty(paymentMethods.PaymentMethodCode))
+                            for (int i = 0; i < paymentMethods.Count; i++)
                             {
-                                bp.BPPaymentMethods.Add(new BPPaymentMethodDto
+                                paymentMethods.SetCurrentLine(i);
+                                if (!string.IsNullOrEmpty(paymentMethods.PaymentMethodCode))
                                 {
-                                    PaymentMethodCode = paymentMethods.PaymentMethodCode
-                                });
+                                    bp.BPPaymentMethods.Add(new BPPaymentMethodDto
+                                    {
+                                        PaymentMethodCode = paymentMethods.PaymentMethodCode
+                                    });
+                                }
                             }
+                            ComHelper.Release(paymentMethods);
                         }
                     }
                     catch (Exception ex)
@@ -281,10 +338,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oBusinessPartner != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oBusinessPartner);
-                    }
+                    ComHelper.Release(oBusinessPartner);
                 }
             });
         }
@@ -650,10 +704,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oBusinessPartner != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oBusinessPartner);
-                    }
+                    ComHelper.Release(oBusinessPartner);
                 }
             });
         }
@@ -963,10 +1014,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oBusinessPartner != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oBusinessPartner);
-                    }
+                    ComHelper.Release(oBusinessPartner);
                 }
             });
         }
@@ -1090,10 +1138,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oAttachment != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oAttachment);
-                    }
+                    ComHelper.Release(oAttachment);
                 }
             });
         }
@@ -1145,34 +1190,78 @@ namespace SapDiApi.Bridge.Services.Sap
                     };
 
                     // Obtener líneas de etapas y autorizadores asignados
-                    var lines = appReq.ApprovalRequestLines;
-                    for (int i = 0; i < lines.Count; i++)
+                    ApprovalRequestLines? lines = null;
+                    try
                     {
-                        var line = lines.Item(i);
-                        appDto.ApprovalRequestLines.Add(new ApprovalRequestLineDto
+                        lines = appReq.ApprovalRequestLines;
+                        if (lines != null)
                         {
-                            StageCode = line.StageCode,
-                            UserID = line.UserID,
-                            Status = line.Status.ToString(),
-                            Remarks = line.Remarks,
-                            UpdateDate = CleanSapDate(line.UpdateDate)?.ToString("yyyy-MM-dd"),
-                            UpdateTime = FormatSapTime(line.UpdateTime),
-                            CreationDate = CleanSapDate(line.CreationDate)?.ToString("yyyy-MM-dd"),
-                            CreationTime = FormatSapTime(line.CreationTime)
-                        });
+                            for (int i = 0; i < lines.Count; i++)
+                            {
+                                ApprovalRequestLine? line = null;
+                                try
+                                {
+                                    line = lines.Item(i);
+                                    if (line != null)
+                                    {
+                                        appDto.ApprovalRequestLines.Add(new ApprovalRequestLineDto
+                                        {
+                                            StageCode = line.StageCode,
+                                            UserID = line.UserID,
+                                            Status = line.Status.ToString(),
+                                            Remarks = line.Remarks,
+                                            UpdateDate = CleanSapDate(line.UpdateDate)?.ToString("yyyy-MM-dd"),
+                                            UpdateTime = FormatSapTime(line.UpdateTime),
+                                            CreationDate = CleanSapDate(line.CreationDate)?.ToString("yyyy-MM-dd"),
+                                            CreationTime = FormatSapTime(line.CreationTime)
+                                        });
+                                    }
+                                }
+                                finally
+                                {
+                                    ComHelper.Release(line);
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        ComHelper.Release(lines);
                     }
 
                     // Obtener historial de decisiones
-                    var decisions = appReq.ApprovalRequestDecisions;
-                    for (int i = 0; i < decisions.Count; i++)
+                    ApprovalRequestDecisions? decisions = null;
+                    try
                     {
-                        var dec = decisions.Item(i);
-                        appDto.ApprovalRequestDecisions.Add(new ApprovalRequestDecisionDto
+                        decisions = appReq.ApprovalRequestDecisions;
+                        if (decisions != null)
                         {
-                            ApproverUserName = dec.ApproverUserName,
-                            Status = dec.Status.ToString(),
-                            Remarks = dec.Remarks
-                        });
+                            for (int i = 0; i < decisions.Count; i++)
+                            {
+                                ApprovalRequestDecision? dec = null;
+                                try
+                                {
+                                    dec = decisions.Item(i);
+                                    if (dec != null)
+                                    {
+                                        appDto.ApprovalRequestDecisions.Add(new ApprovalRequestDecisionDto
+                                        {
+                                            ApproverUserName = dec.ApproverUserName,
+                                            Status = dec.Status.ToString(),
+                                            Remarks = dec.Remarks
+                                        });
+                                    }
+                                }
+                                finally
+                                {
+                                    ComHelper.Release(dec);
+                                }
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        ComHelper.Release(decisions);
                     }
 
                     return Task.FromResult<ApprovalRequestDto?>(appDto);
@@ -1184,14 +1273,10 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (appReq != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appReq);
-                    if (appParams != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appParams);
-                    if (appService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appService);
-                    if (compService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(compService);
+                    ComHelper.Release(appReq);
+                    ComHelper.Release(appParams);
+                    ComHelper.Release(appService);
+                    ComHelper.Release(compService);
                 }
             });
         }
@@ -1277,10 +1362,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oRs != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oRs);
-                    }
+                    ComHelper.Release(oRs);
                 }
             });
         }
@@ -1365,14 +1447,10 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (appReq != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appReq);
-                    if (appParams != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appParams);
-                    if (appService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(appService);
-                    if (compService != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        Marshal.ReleaseComObject(compService);
+                    ComHelper.Release(appReq);
+                    ComHelper.Release(appParams);
+                    ComHelper.Release(appService);
+                    ComHelper.Release(compService);
                 }
             });
         }
@@ -1446,13 +1524,30 @@ namespace SapDiApi.Bridge.Services.Sap
                     // Mapear UDFs de Cabecera
                     try
                     {
-                        var fields = oDraft.UserFields.Fields;
-                        for (int i = 0; i < fields.Count; i++)
+                        var userFields = oDraft.UserFields;
+                        var fields = userFields?.Fields;
+                        if (fields != null)
                         {
-                            var f = fields.Item(i);
-                            var fname = f.Name.StartsWith("U_") ? f.Name : $"U_{f.Name}";
-                            draftDto.UserFields[fname] = f.Value is DateTime dt ? FormatSapDate(dt) : f.Value;
+                            for (int i = 0; i < fields.Count; i++)
+                            {
+                                Field? f = null;
+                                try
+                                {
+                                    f = fields.Item(i);
+                                    if (f != null)
+                                    {
+                                        var fname = f.Name.StartsWith("U_") ? f.Name : $"U_{f.Name}";
+                                        draftDto.UserFields[fname] = f.Value is DateTime dt ? FormatSapDate(dt) : f.Value;
+                                    }
+                                }
+                                finally
+                                {
+                                    ComHelper.Release(f);
+                                }
+                            }
+                            ComHelper.Release(fields);
                         }
+                        ComHelper.Release(userFields);
                     }
                     catch (Exception ex)
                     {
@@ -1461,57 +1556,84 @@ namespace SapDiApi.Bridge.Services.Sap
 
                     // Mapear Líneas de Detalle (DocumentLines)
                     var lines = oDraft.Lines;
-                    for (int i = 0; i < lines.Count; i++)
+                    try
                     {
-                        lines.SetCurrentLine(i);
-                        var lineDto = new DraftDocumentLineDto
+                        if (lines != null)
                         {
-                            LineNum = lines.LineNum,
-                            ItemCode = lines.ItemCode,
-                            ItemDescription = lines.ItemDescription,
-                            Quantity = (decimal)lines.Quantity,
-                            Price = (decimal)lines.Price,
-                            PriceAfterVAT = (decimal)lines.PriceAfterVAT,
-                            Currency = lines.Currency,
-                            DiscountPercent = (decimal)lines.DiscountPercent,
-                            WarehouseCode = lines.WarehouseCode,
-                            AccountCode = lines.AccountCode,
-                            CostingCode = lines.CostingCode,
-                            CostingCode2 = lines.CostingCode2,
-                            CostingCode3 = lines.CostingCode3,
-                            CostingCode4 = lines.CostingCode4,
-                            CostingCode5 = lines.CostingCode5,
-                            ProjectCode = lines.ProjectCode,
-                            TaxCode = lines.TaxCode,
-                            VatGroup = lines.VatGroup,
-                            LineTotal = (decimal)lines.LineTotal,
-                            GrossTotal = (decimal)lines.GrossTotal,
-                            GrossTotalSC = (decimal)lines.GrossTotalSC,
-                            TaxTotal = (decimal)lines.TaxTotal,
-                            TaxPercentagePerRow = (decimal)lines.TaxPercentagePerRow,
-                            MeasureUnit = lines.MeasureUnit,
-                            UoMCode = lines.UoMCode,
-                            FreeText = lines.FreeText,
-                            LineStatus = lines.LineStatus == BoStatus.bost_Open ? "bost_Open" : "bost_Close"
-                        };
-
-                        // UDFs a nivel de Línea
-                        try
-                        {
-                            var lfields = lines.UserFields.Fields;
-                            for (int u = 0; u < lfields.Count; u++)
+                            for (int i = 0; i < lines.Count; i++)
                             {
-                                var lf = lfields.Item(u);
-                                var lfname = lf.Name.StartsWith("U_") ? lf.Name : $"U_{lf.Name}";
-                                lineDto.UserFields[lfname] = lf.Value is DateTime ldt ? FormatSapDate(ldt) : lf.Value;
+                                lines.SetCurrentLine(i);
+                                var lineDto = new DraftDocumentLineDto
+                                {
+                                    LineNum = lines.LineNum,
+                                    ItemCode = lines.ItemCode,
+                                    ItemDescription = lines.ItemDescription,
+                                    Quantity = (decimal)lines.Quantity,
+                                    Price = (decimal)lines.Price,
+                                    PriceAfterVAT = (decimal)lines.PriceAfterVAT,
+                                    Currency = lines.Currency,
+                                    DiscountPercent = (decimal)lines.DiscountPercent,
+                                    WarehouseCode = lines.WarehouseCode,
+                                    AccountCode = lines.AccountCode,
+                                    CostingCode = lines.CostingCode,
+                                    CostingCode2 = lines.CostingCode2,
+                                    CostingCode3 = lines.CostingCode3,
+                                    CostingCode4 = lines.CostingCode4,
+                                    CostingCode5 = lines.CostingCode5,
+                                    ProjectCode = lines.ProjectCode,
+                                    TaxCode = lines.TaxCode,
+                                    VatGroup = lines.VatGroup,
+                                    LineTotal = (decimal)lines.LineTotal,
+                                    GrossTotal = (decimal)lines.GrossTotal,
+                                    GrossTotalSC = (decimal)lines.GrossTotalSC,
+                                    TaxTotal = (decimal)lines.TaxTotal,
+                                    TaxPercentagePerRow = (decimal)lines.TaxPercentagePerRow,
+                                    MeasureUnit = lines.MeasureUnit,
+                                    UoMCode = lines.UoMCode,
+                                    FreeText = lines.FreeText,
+                                    LineStatus = lines.LineStatus == BoStatus.bost_Open ? "bost_Open" : "bost_Close"
+                                };
+
+                                // UDFs a nivel de Línea
+                                try
+                                {
+                                    var lineUserFields = lines.UserFields;
+                                    var lfields = lineUserFields?.Fields;
+                                    if (lfields != null)
+                                    {
+                                        for (int u = 0; u < lfields.Count; u++)
+                                        {
+                                            Field? lf = null;
+                                            try
+                                            {
+                                                lf = lfields.Item(u);
+                                                if (lf != null)
+                                                {
+                                                    var lfname = lf.Name.StartsWith("U_") ? lf.Name : $"U_{lf.Name}";
+                                                    lineDto.UserFields[lfname] = lf.Value is DateTime ldt ? FormatSapDate(ldt) : lf.Value;
+                                                }
+                                            }
+                                            finally
+                                            {
+                                                ComHelper.Release(lf);
+                                            }
+                                        }
+                                        ComHelper.Release(lfields);
+                                    }
+                                    ComHelper.Release(lineUserFields);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug("Aviso UDFs Línea Borrador: {Message}", ex.Message);
+                                }
+
+                                draftDto.DocumentLines.Add(lineDto);
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug("Aviso UDFs Línea Borrador: {Message}", ex.Message);
-                        }
-
-                        draftDto.DocumentLines.Add(lineDto);
+                    }
+                    finally
+                    {
+                        ComHelper.Release(lines);
                     }
 
                     // Mapear AddressExtension
@@ -1532,6 +1654,7 @@ namespace SapDiApi.Bridge.Services.Sap
                                 BillToState = addrExt.BillToState,
                                 BillToCountry = addrExt.BillToCountry
                             };
+                            ComHelper.Release(addrExt);
                         }
                     }
                     catch (Exception ex)
@@ -1555,6 +1678,7 @@ namespace SapDiApi.Bridge.Services.Sap
                                 CountryS = taxExt.CountryS,
                                 MainUsage = taxExt.MainUsage.ToString()
                             };
+                            ComHelper.Release(taxExt);
                         }
                     }
                     catch (Exception ex)
@@ -1566,10 +1690,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oDraft != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oDraft);
-                    }
+                    ComHelper.Release(oDraft);
                 }
             });
         }
@@ -1639,10 +1760,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oRs != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oRs);
-                    }
+                    ComHelper.Release(oRs);
                 }
             });
         }
@@ -1684,10 +1802,7 @@ namespace SapDiApi.Bridge.Services.Sap
                 }
                 finally
                 {
-                    if (oDraft != null && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        Marshal.ReleaseComObject(oDraft);
-                    }
+                    ComHelper.Release(oDraft);
                 }
             });
         }
