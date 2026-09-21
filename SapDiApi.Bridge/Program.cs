@@ -9,6 +9,7 @@ using SapDiApi.Bridge.Services.BusinessPartners;
 using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
 using SapDiApi.Bridge.Services.Sap;
+using SapDiApi.Bridge.Services.Users;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -45,6 +46,7 @@ builder.Services.AddSingleton<IHealthService, HealthService>();
 builder.Services.AddSingleton<IBusinessPartnerService, BusinessPartnerService>();
 builder.Services.AddSingleton<IApprovalRequestService, ApprovalRequestService>();
 builder.Services.AddSingleton<IDraftService, DraftService>();
+builder.Services.AddSingleton<IUserService, UserService>();
 
 // 4. GraphQL con Soporte Completo para Filtering, Sorting, Proyecciones y Mutations
 builder.Services

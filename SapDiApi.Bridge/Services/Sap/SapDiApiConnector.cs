@@ -5,6 +5,7 @@ using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Drafts;
+using SapDiApi.Bridge.Models.Users;
 using SapDiApi.Bridge.Infrastructure.Common;
 using SapDiApi.Bridge.Models.Sap;
 
@@ -1805,6 +1806,620 @@ namespace SapDiApi.Bridge.Services.Sap
                     ComHelper.Release(oDraft);
                 }
             });
+        }
+
+        #endregion
+
+        #region Users (Administración de Usuarios OUSR)
+
+        public async Task<UserDto?> GetUserByIdAsync(UserSession session, int internalKey, bool includePermissions = false)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Recordset? oRs = null;
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    string sql = $"SELECT T0.* FROM \"OUSR\" T0 WHERE T0.\"USERID\" = {internalKey}";
+                    oRs.DoQuery(sql);
+
+                    if (oRs.EoF)
+                    {
+                        return Task.FromResult<UserDto?>(null);
+                    }
+
+                    var user = MapUserDtoFromRecordset(oRs);
+                    EnrichUserAudit(company, user);
+
+                    if (includePermissions)
+                    {
+                        user.UserPermissions = LoadUserPermissions(company, internalKey);
+                    }
+
+                    return Task.FromResult<UserDto?>(user);
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                }
+            });
+        }
+
+        public async Task<UserDto?> GetUserByCodeAsync(UserSession session, string userCode, bool includePermissions = false)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Recordset? oRs = null;
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    string escapedCode = userCode.Replace("'", "''");
+                    string sql = $"SELECT T0.* FROM \"OUSR\" T0 WHERE T0.\"USER_CODE\" = '{escapedCode}'";
+                    oRs.DoQuery(sql);
+
+                    if (oRs.EoF)
+                    {
+                        return Task.FromResult<UserDto?>(null);
+                    }
+
+                    var user = MapUserDtoFromRecordset(oRs);
+                    EnrichUserAudit(company, user);
+
+                    if (includePermissions)
+                    {
+                        user.UserPermissions = LoadUserPermissions(company, user.InternalKey);
+                    }
+
+                    return Task.FromResult<UserDto?>(user);
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                }
+            });
+        }
+
+        public async Task<IEnumerable<UserDto>> GetUsersFilteredAsync(UserSession session, UserFilterDto filter)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                Recordset? oRs = null;
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    var whereClauses = new List<string>();
+
+                    if (!string.IsNullOrWhiteSpace(filter.Search))
+                    {
+                        string searchEscaped = filter.Search.Trim().Replace("'", "''");
+                        whereClauses.Add($"(\"USER_CODE\" LIKE '%{searchEscaped}%' OR \"U_NAME\" LIKE '%{searchEscaped}%')");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(filter.Locked))
+                    {
+                        var isLocked = filter.Locked.Equals("tYES", StringComparison.OrdinalIgnoreCase) || filter.Locked.Equals("Y", StringComparison.OrdinalIgnoreCase) ? "Y" : "N";
+                        whereClauses.Add($"\"Locked\" = '{isLocked}'");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(filter.Superuser))
+                    {
+                        var isSuper = filter.Superuser.Equals("tYES", StringComparison.OrdinalIgnoreCase) || filter.Superuser.Equals("Y", StringComparison.OrdinalIgnoreCase) ? "Y" : "N";
+                        whereClauses.Add($"\"SUPERUSER\" = '{isSuper}'");
+                    }
+
+                    if (filter.Branch.HasValue)
+                    {
+                        whereClauses.Add($"\"Branch\" = {filter.Branch.Value}");
+                    }
+
+                    if (filter.Department.HasValue)
+                    {
+                        whereClauses.Add($"\"Department\" = {filter.Department.Value}");
+                    }
+
+                    string whereSql = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+                    int pageSize = Math.Clamp(filter.PageSize, 1, 500);
+                    int topLimit = pageSize * Math.Max(filter.Page, 1);
+
+                    string sql = $"SELECT TOP {topLimit} T0.* FROM \"OUSR\" T0 {whereSql} ORDER BY T0.\"USERID\" ASC";
+                    oRs.DoQuery(sql);
+
+                    var list = new List<UserDto>();
+                    int currentIndex = 0;
+                    int startIndex = (Math.Max(filter.Page, 1) - 1) * pageSize;
+
+                    while (!oRs.EoF)
+                    {
+                        if (currentIndex >= startIndex && list.Count < pageSize)
+                        {
+                            list.Add(MapUserDtoFromRecordset(oRs));
+                        }
+                        currentIndex++;
+                        oRs.MoveNext();
+                    }
+
+                    return Task.FromResult<IEnumerable<UserDto>>(list);
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                }
+            });
+        }
+
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> CreateUserAsync(UserSession session, CreateUserDto dto)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Creando nuevo usuario '{UserCode}' en SAP | DB: {DB} | Operador: {AuditUser}",
+                dto.UserCode, session.CompanyDB, session.AuditUser ?? session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                SAPbobsCOM.Users? oUsers = null;
+                try
+                {
+                    oUsers = (SAPbobsCOM.Users)company.GetBusinessObject(BoObjectTypes.oUsers);
+
+                    oUsers.UserCode = dto.UserCode.Trim();
+                    oUsers.UserName = dto.UserName ?? dto.UserCode;
+
+                    if (!string.IsNullOrWhiteSpace(dto.UserPassword))
+                    {
+                        oUsers.UserPassword = dto.UserPassword;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Superuser))
+                    {
+                        oUsers.Superuser = dto.Superuser.Equals("tYES", StringComparison.OrdinalIgnoreCase) || dto.Superuser.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                            ? BoYesNoEnum.tYES : BoYesNoEnum.tNO;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Locked))
+                    {
+                        oUsers.Locked = dto.Locked.Equals("tYES", StringComparison.OrdinalIgnoreCase) || dto.Locked.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                            ? BoYesNoEnum.tYES : BoYesNoEnum.tNO;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Email))
+                    {
+                        oUsers.eMail = dto.Email;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.MobilePhoneNumber))
+                    {
+                        oUsers.MobilePhoneNumber = dto.MobilePhoneNumber;
+                    }
+
+                    if (dto.Branch.HasValue)
+                    {
+                        oUsers.Branch = dto.Branch.Value;
+                    }
+
+                    if (dto.Department.HasValue)
+                    {
+                        oUsers.Department = dto.Department.Value;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Defaults))
+                    {
+                        oUsers.Defaults = dto.Defaults;
+                    }
+
+                    // Asignación de Campos de Usuario (UDFs)
+                    SetUserUdfSafe(oUsers, "U_Establecimiento", dto.U_Establecimiento);
+                    SetUserUdfSafe(oUsers, "U_visualizar_todos_DTE", dto.U_visualizar_todos_DTE);
+                    SetUserUdfSafe(oUsers, "U_MultiEst", dto.U_MultiEst);
+                    SetUserUdfSafe(oUsers, "U_MensajeEnvioDocto", dto.U_MensajeEnvioDocto);
+                    SetUserUdfSafe(oUsers, "U_ActivarLog", dto.U_ActivarLog);
+                    SetUserUdfSafe(oUsers, "U_ActivarXML", dto.U_ActivarXML);
+
+                    if (dto.UserFields != null)
+                    {
+                        foreach (var kvp in dto.UserFields)
+                        {
+                            SetUserUdfSafe(oUsers, kvp.Key, kvp.Value);
+                        }
+                    }
+
+                    int addResult = oUsers.Add();
+                    if (addResult == 0)
+                    {
+                        string newKeyStr = company.GetNewObjectKey();
+                        int.TryParse(newKeyStr, out int generatedKey);
+
+                        _logger.LogInformation("Usuario '{UserCode}' creado exitosamente con InternalKey #{Key}", dto.UserCode, generatedKey);
+                        return Task.FromResult((true, generatedKey, (string?)null));
+                    }
+                    else
+                    {
+                        company.GetLastError(out int lastErrorCode, out string lastErrorDescription);
+                        _logger.LogError("Fallo al crear usuario '{UserCode}' en SAP ({Code}): {Error}", dto.UserCode, lastErrorCode, lastErrorDescription);
+                        return Task.FromResult((false, 0, (string?)$"Error SAP ({lastErrorCode}): {lastErrorDescription}"));
+                    }
+                }
+                finally
+                {
+                    ComHelper.Release(oUsers);
+                }
+            });
+        }
+
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserAsync(UserSession session, int internalKey, UpdateUserDto dto)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Actualizando usuario #{InternalKey} en SAP | DB: {DB} | Operador: {AuditUser}",
+                internalKey, session.CompanyDB, session.AuditUser ?? session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                SAPbobsCOM.Users? oUsers = null;
+                try
+                {
+                    oUsers = (SAPbobsCOM.Users)company.GetBusinessObject(BoObjectTypes.oUsers);
+
+                    if (!oUsers.GetByKey(internalKey))
+                    {
+                        return Task.FromResult((false, internalKey, (string?)$"El usuario con InternalKey #{internalKey} no existe en SAP."));
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.UserName))
+                    {
+                        oUsers.UserName = dto.UserName;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Superuser))
+                    {
+                        oUsers.Superuser = dto.Superuser.Equals("tYES", StringComparison.OrdinalIgnoreCase) || dto.Superuser.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                            ? BoYesNoEnum.tYES : BoYesNoEnum.tNO;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(dto.Locked))
+                    {
+                        oUsers.Locked = dto.Locked.Equals("tYES", StringComparison.OrdinalIgnoreCase) || dto.Locked.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                            ? BoYesNoEnum.tYES : BoYesNoEnum.tNO;
+                    }
+
+                    if (dto.Email != null)
+                    {
+                        oUsers.eMail = dto.Email;
+                    }
+
+                    if (dto.MobilePhoneNumber != null)
+                    {
+                        oUsers.MobilePhoneNumber = dto.MobilePhoneNumber;
+                    }
+
+                    if (dto.Branch.HasValue)
+                    {
+                        oUsers.Branch = dto.Branch.Value;
+                    }
+
+                    if (dto.Department.HasValue)
+                    {
+                        oUsers.Department = dto.Department.Value;
+                    }
+
+                    if (dto.Defaults != null)
+                    {
+                        oUsers.Defaults = dto.Defaults;
+                    }
+
+                    // Actualización de UDFs
+                    if (dto.U_Establecimiento != null) SetUserUdfSafe(oUsers, "U_Establecimiento", dto.U_Establecimiento);
+                    if (dto.U_visualizar_todos_DTE != null) SetUserUdfSafe(oUsers, "U_visualizar_todos_DTE", dto.U_visualizar_todos_DTE);
+                    if (dto.U_MultiEst != null) SetUserUdfSafe(oUsers, "U_MultiEst", dto.U_MultiEst);
+                    if (dto.U_MensajeEnvioDocto != null) SetUserUdfSafe(oUsers, "U_MensajeEnvioDocto", dto.U_MensajeEnvioDocto);
+                    if (dto.U_ActivarLog != null) SetUserUdfSafe(oUsers, "U_ActivarLog", dto.U_ActivarLog);
+                    if (dto.U_ActivarXML != null) SetUserUdfSafe(oUsers, "U_ActivarXML", dto.U_ActivarXML);
+
+                    if (dto.UserFields != null)
+                    {
+                        foreach (var kvp in dto.UserFields)
+                        {
+                            SetUserUdfSafe(oUsers, kvp.Key, kvp.Value);
+                        }
+                    }
+
+                    int updateResult = oUsers.Update();
+                    if (updateResult == 0)
+                    {
+                        _logger.LogInformation("Usuario #{InternalKey} actualizado exitosamente en SAP.", internalKey);
+                        return Task.FromResult((true, internalKey, (string?)null));
+                    }
+                    else
+                    {
+                        company.GetLastError(out int lastErrorCode, out string lastErrorDescription);
+                        _logger.LogError("Fallo al actualizar usuario #{InternalKey} en SAP ({Code}): {Error}", internalKey, lastErrorCode, lastErrorDescription);
+                        return Task.FromResult((false, internalKey, (string?)$"Error SAP ({lastErrorCode}): {lastErrorDescription}"));
+                    }
+                }
+                finally
+                {
+                    ComHelper.Release(oUsers);
+                }
+            });
+        }
+
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, string newPassword)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Modificando contraseña para usuario #{InternalKey} en SAP | DB: {DB} | Operador: {AuditUser}",
+                internalKey, session.CompanyDB, session.AuditUser ?? session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                SAPbobsCOM.Users? oUsers = null;
+                try
+                {
+                    oUsers = (SAPbobsCOM.Users)company.GetBusinessObject(BoObjectTypes.oUsers);
+
+                    if (!oUsers.GetByKey(internalKey))
+                    {
+                        return Task.FromResult((false, internalKey, (string?)$"El usuario con InternalKey #{internalKey} no existe en SAP."));
+                    }
+
+                    oUsers.UserPassword = newPassword;
+
+                    int updateResult = oUsers.Update();
+                    if (updateResult == 0)
+                    {
+                        _logger.LogInformation("Contraseña del usuario #{InternalKey} cambiada exitosamente en SAP.", internalKey);
+                        return Task.FromResult((true, internalKey, (string?)null));
+                    }
+                    else
+                    {
+                        company.GetLastError(out int lastErrorCode, out string lastErrorDescription);
+                        _logger.LogError("Fallo al cambiar contraseña para usuario #{InternalKey} en SAP ({Code}): {Error}", internalKey, lastErrorCode, lastErrorDescription);
+                        return Task.FromResult((false, internalKey, (string?)$"Error SAP ({lastErrorCode}): {lastErrorDescription}"));
+                    }
+                }
+                finally
+                {
+                    ComHelper.Release(oUsers);
+                }
+            });
+        }
+
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserByCodeAsync(UserSession session, string userCode, UpdateUserDto dto)
+        {
+            var user = await GetUserByCodeAsync(session, userCode);
+            if (user == null)
+            {
+                return (false, 0, $"El usuario con código '{userCode}' no existe en la sociedad '{session.CompanyDB}'.");
+            }
+
+            return await UpdateUserAsync(session, user.InternalKey, dto);
+        }
+
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, string newPassword)
+        {
+            var user = await GetUserByCodeAsync(session, userCode);
+            if (user == null)
+            {
+                return (false, 0, $"El usuario con código '{userCode}' no existe en la sociedad '{session.CompanyDB}'.");
+            }
+
+            return await ChangeUserPasswordAsync(session, user.InternalKey, newPassword);
+        }
+
+        private static UserDto MapUserDtoFromRecordset(Recordset oRs)
+        {
+            var phone = GetSafeString(oRs, "PortNum")
+                        ?? GetSafeString(oRs, "Tel1") 
+                        ?? GetSafeString(oRs, "Tel2") 
+                        ?? GetSafeString(oRs, "Cellular") 
+                        ?? GetSafeString(oRs, "Mobile");
+
+            var dto = new UserDto
+            {
+                InternalKey = GetSafeInt(oRs, "USERID"),
+                UserCode = GetSafeString(oRs, "USER_CODE") ?? string.Empty,
+                UserName = GetSafeString(oRs, "U_NAME"),
+                Superuser = GetSafeString(oRs, "SUPERUSER") == "Y" ? "tYES" : "tNO",
+                MobileUser = GetSafeString(oRs, "MobileUser") == "Y" ? "tYES" : "tNO",
+                Locked = GetSafeString(oRs, "Locked") == "Y" ? "tYES" : "tNO",
+                Email = GetSafeString(oRs, "E_Mail"),
+                MobilePhoneNumber = phone,
+                FaxNumber = GetSafeString(oRs, "Fax"),
+                WindowsUserName = GetSafeString(oRs, "DomainUser"),
+                MobileDeviceId = GetSafeString(oRs, "MobileIMEI"),
+                Branch = GetSafeNullableInt(oRs, "Branch"),
+                Department = GetSafeNullableInt(oRs, "Department"),
+                Defaults = GetSafeString(oRs, "DfltsGroup"),
+                Group = GetSafeString(oRs, "GROUPS") ?? GetSafeString(oRs, "UserGroup") ?? "ug_Regular",
+                PasswordNeverExpires = GetSafeString(oRs, "PwdNeverEx") == "Y" ? "tYES" : "tNO",
+                ChangePasswordNextLogon = GetSafeString(oRs, "OneLogPwd") == "Y" ? "tYES" : "tNO",
+                LanguageCode = MapLanguageCode(GetSafeValue(oRs, "Language")),
+                ScreenLockTime = GetSafeNullableInt(oRs, "ScreenLock"),
+                EmployeeId = GetSafeNullableInt(oRs, "empID"),
+                MaxDiscountGeneral = GetSafeNullableDouble(oRs, "DISCOUNT") ?? GetSafeNullableDouble(oRs, "MaxDiscnt") ?? 0.0,
+                MaxDiscountSales = GetSafeNullableDouble(oRs, "SalesDisc") ?? GetSafeNullableDouble(oRs, "MaxDisSales") ?? 0.0,
+                MaxDiscountPurchase = GetSafeNullableDouble(oRs, "PurchDisc") ?? GetSafeNullableDouble(oRs, "MaxDisPurch") ?? 0.0,
+                LastLogoutDate = FormatSapDate(GetSafeValue(oRs, "LstLogoutD") ?? GetSafeValue(oRs, "LastLogoutDate") ?? GetSafeValue(oRs, "LastLogout")),
+                LastLoginTime = FormatSapTime(GetSafeValue(oRs, "LstLoginT") ?? GetSafeValue(oRs, "LastLoginTime") ?? GetSafeValue(oRs, "LstLogTime")),
+                LastLogoutTime = FormatSapTime(GetSafeValue(oRs, "LstLogoutT") ?? GetSafeValue(oRs, "LastLogoutTime")),
+                LastPasswordChangeTime = FormatSapTime(GetSafeValue(oRs, "LstPwdChT") ?? GetSafeValue(oRs, "LastPasswordChangeTime")),
+                LastPasswordChangedBy = GetSafeString(oRs, "LstPwdChB") ?? GetSafeString(oRs, "LastPasswordChangedBy"),
+                U_Establecimiento = GetSafeString(oRs, "U_Establecimiento"),
+                U_visualizar_todos_DTE = GetSafeString(oRs, "U_visualizar_todos_DTE") ?? "N",
+                U_MultiEst = GetSafeString(oRs, "U_MultiEst") ?? "N",
+                U_MensajeEnvioDocto = GetSafeString(oRs, "U_MensajeEnvioDocto") ?? "N",
+                U_ActivarLog = GetSafeString(oRs, "U_ActivarLog") ?? "N",
+                U_ActivarXML = GetSafeString(oRs, "U_ActivarXML") ?? "N"
+            };
+
+            return dto;
+        }
+
+        private static void EnrichUserAudit(Company company, UserDto dto)
+        {
+            Recordset? oRsAudit = null;
+            try
+            {
+                oRsAudit = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                string escapedUser = dto.UserCode.Replace("'", "''");
+                string sql = $"SELECT TOP 20 \"Action\", \"ActionDate\", \"ActionTime\", \"ActionBy\" FROM \"USR5\" WHERE \"UserCode\" = '{escapedUser}' ORDER BY \"ActionDate\" DESC, \"ActionTime\" DESC";
+                oRsAudit.DoQuery(sql);
+
+                while (!oRsAudit.EoF)
+                {
+                    string action = oRsAudit.Fields.Item("Action").Value?.ToString() ?? string.Empty;
+                    var actDate = FormatSapDate(oRsAudit.Fields.Item("ActionDate").Value);
+                    var actTime = FormatSapTime(oRsAudit.Fields.Item("ActionTime").Value);
+                    var actBy = oRsAudit.Fields.Item("ActionBy").Value?.ToString();
+
+                    if ((action == "L" || action.Equals("actionLogin", StringComparison.OrdinalIgnoreCase)) && string.IsNullOrWhiteSpace(dto.LastLoginTime))
+                    {
+                        dto.LastLoginTime = actTime;
+                    }
+                    else if ((action == "O" || action.Equals("actionLogoff", StringComparison.OrdinalIgnoreCase)) && string.IsNullOrWhiteSpace(dto.LastLogoutDate))
+                    {
+                        dto.LastLogoutDate = actDate;
+                        dto.LastLogoutTime = actTime;
+                    }
+                    else if ((action == "P" || action.Equals("actionPassword", StringComparison.OrdinalIgnoreCase)) && string.IsNullOrWhiteSpace(dto.LastPasswordChangeTime))
+                    {
+                        dto.LastPasswordChangeTime = actTime;
+                        dto.LastPasswordChangedBy = actBy;
+                    }
+
+                    oRsAudit.MoveNext();
+                }
+            }
+            catch
+            {
+                // USR5 opcional
+            }
+            finally
+            {
+                ComHelper.Release(oRsAudit);
+            }
+        }
+
+        private static string? MapLanguageCode(object? langVal)
+        {
+            if (langVal == null || langVal is DBNull) return null;
+            string strVal = langVal.ToString()?.Trim() ?? string.Empty;
+            if (int.TryParse(strVal, out int langId))
+            {
+                return langId switch
+                {
+                    25 => "ln_Spanish_La",
+                    24 => "ln_Spanish",
+                    3 => "ln_English",
+                    2 => "ln_Spanish_Ar",
+                    5 => "ln_German",
+                    8 => "ln_French",
+                    9 => "ln_Italian",
+                    23 => "ln_Portuguese_Br",
+                    1 => "ln_Hebrew",
+                    _ => strVal
+                };
+            }
+            return strVal;
+        }
+
+        private static List<UserPermissionDto> LoadUserPermissions(Company company, int internalKey)
+        {
+            var perms = new List<UserPermissionDto>();
+            Recordset? oRsPerms = null;
+            try
+            {
+                oRsPerms = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                string sql = $"SELECT \"UserCode\", \"PermId\", \"Permission\" FROM \"USR3\" WHERE \"UserCode\" = {internalKey}";
+                oRsPerms.DoQuery(sql);
+
+                while (!oRsPerms.EoF)
+                {
+                    string permStr = oRsPerms.Fields.Item("Permission").Value?.ToString() ?? "N";
+                    string mappedPerm = permStr == "F" ? "boper_Full" : (permStr == "R" ? "boper_ReadOnly" : "boper_None");
+
+                    perms.Add(new UserPermissionDto
+                    {
+                        UserCode = Convert.ToInt32(oRsPerms.Fields.Item("UserCode").Value),
+                        PermissionID = oRsPerms.Fields.Item("PermId").Value?.ToString() ?? string.Empty,
+                        Permission = mappedPerm
+                    });
+                    oRsPerms.MoveNext();
+                }
+            }
+            catch
+            {
+                // Ignorar si la tabla USR3 no está disponible
+            }
+            finally
+            {
+                ComHelper.Release(oRsPerms);
+            }
+
+            return perms;
+        }
+
+        private static void SetUserUdfSafe(SAPbobsCOM.Users oUsers, string fieldName, object? value)
+        {
+            if (value == null) return;
+            try
+            {
+                Field? field = oUsers.UserFields.Fields.Item(fieldName);
+                if (field != null)
+                {
+                    field.Value = value;
+                    ComHelper.Release(field);
+                }
+            }
+            catch
+            {
+                // Ignorar si el UDF no está configurado en SAP
+            }
+        }
+
+        private static object? GetSafeValue(Recordset rs, string fieldName)
+        {
+            try
+            {
+                var val = rs.Fields.Item(fieldName).Value;
+                return val is DBNull ? null : val;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? GetSafeString(Recordset rs, string fieldName)
+        {
+            var val = GetSafeValue(rs, fieldName);
+            return val?.ToString();
+        }
+
+        private static int GetSafeInt(Recordset rs, string fieldName)
+        {
+            var val = GetSafeValue(rs, fieldName);
+            if (val == null) return 0;
+            return Convert.ToInt32(val);
+        }
+
+        private static int? GetSafeNullableInt(Recordset rs, string fieldName)
+        {
+            var val = GetSafeValue(rs, fieldName);
+            if (val == null) return null;
+            return Convert.ToInt32(val);
+        }
+
+        private static double? GetSafeNullableDouble(Recordset rs, string fieldName)
+        {
+            var val = GetSafeValue(rs, fieldName);
+            if (val == null) return null;
+            return Convert.ToDouble(val);
         }
 
         #endregion
