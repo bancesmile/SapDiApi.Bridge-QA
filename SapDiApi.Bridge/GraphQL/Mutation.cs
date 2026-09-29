@@ -5,11 +5,13 @@ using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
+using SapDiApi.Bridge.Models.Users;
 using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
 using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Sap;
+using SapDiApi.Bridge.Services.Users;
 
 namespace SapDiApi.Bridge.GraphQL
 {
@@ -213,6 +215,101 @@ namespace SapDiApi.Bridge.GraphQL
                 ErrorMessage = errorMessage
             };
         }
+
+        /// <summary>
+        /// Crea un nuevo Usuario en SAP Business One (OUSR).
+        /// </summary>
+        public async Task<UserMutationResult> CreateUser(
+            CreateUserDto input,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            var (success, internalKey, errorMessage) = await userService.CreateAsync(input, session);
+
+            if (!success)
+            {
+                throw new GraphQLException(errorMessage ?? "Error al crear usuario en SAP.");
+            }
+
+            return new UserMutationResult
+            {
+                Success = success,
+                InternalKey = internalKey,
+                ErrorMessage = errorMessage
+            };
+        }
+
+        /// <summary>
+        /// Actualiza un Usuario existente en SAP Business One.
+        /// </summary>
+        public async Task<UserMutationResult> UpdateUser(
+            int internalKey,
+            UpdateUserDto input,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            var (success, resultKey, errorMessage) = await userService.UpdateAsync(internalKey, input, session);
+
+            if (!success)
+            {
+                throw new GraphQLException(errorMessage ?? $"Error al actualizar usuario #{internalKey} en SAP.");
+            }
+
+            return new UserMutationResult
+            {
+                Success = success,
+                InternalKey = resultKey,
+                ErrorMessage = errorMessage
+            };
+        }
+
+        /// <summary>
+        /// Cambia o restablece la contraseña de un Usuario en SAP Business One.
+        /// </summary>
+        public async Task<UserMutationResult> ChangeUserPassword(
+            int internalKey,
+            string newPassword,
+            string? changePasswordNextLogon,
+            string? passwordNeverExpires,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            var dto = new ChangeUserPasswordDto
+            {
+                NewPassword = newPassword,
+                ChangePasswordNextLogon = changePasswordNextLogon,
+                PasswordNeverExpires = passwordNeverExpires
+            };
+            var (success, resultKey, errorMessage) = await userService.ChangePasswordAsync(internalKey, dto, session);
+
+            if (!success)
+            {
+                throw new GraphQLException(errorMessage ?? $"Error al cambiar contraseña del usuario #{internalKey}.");
+            }
+
+            return new UserMutationResult
+            {
+                Success = success,
+                InternalKey = resultKey,
+                ErrorMessage = errorMessage
+            };
+        }
+    }
+
+    public class UserMutationResult
+    {
+        public bool Success { get; set; }
+        public int InternalKey { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
     public class BusinessPartnerMutationResult

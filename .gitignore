@@ -27,6 +27,9 @@ _ReSharper*/
 *.userprefs
 *.vspscc
 *.vssscc
+*.pubxml
+*.pubxml.user
+**/PublishProfiles/
 *.cache
 *.cachefile
 *.FileListAbsolute.txt
@@ -45,11 +48,17 @@ _ReSharper*/
 **/project.lock.json
 **/project.fragment.lock.json
 
+# Bases de datos locales SQLite
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
 # --------------------------------------------------
 # 2. Entornos de Desarrollo e IDEs (Visual Studio / VS Code / Rider)
 # --------------------------------------------------
 .vs/
-doc/
 .idea/
 .vscode/*
 !.vscode/settings.json

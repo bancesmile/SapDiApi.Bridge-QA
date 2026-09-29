@@ -3,6 +3,7 @@ using SapDiApi.Bridge.Models.Attachments;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Drafts;
+using SapDiApi.Bridge.Models.Users;
 
 namespace SapDiApi.Bridge.Services.Sap
 {
@@ -23,6 +24,19 @@ namespace SapDiApi.Bridge.Services.Sap
         Task<DraftDto?> GetDraftAsync(UserSession session, int docEntry);
         Task<IEnumerable<DraftDto>> GetDraftsFilteredAsync(UserSession session, DraftFilterDto filter);
         Task<(bool Success, int DocEntry, int? GeneratedDocEntry, string? ErrorMessage)> SaveDraftToDocumentAsync(UserSession session, int docEntry);
+
+        // Users (Administración de Usuarios OUSR)
+        Task<UserDto?> GetUserByIdAsync(UserSession session, int internalKey, bool includePermissions = false);
+        Task<UserDto?> GetUserByCodeAsync(UserSession session, string userCode, bool includePermissions = false);
+        Task<IEnumerable<UserDto>> GetUsersFilteredAsync(UserSession session, Models.Users.UserFilterDto filter);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> CreateUserAsync(UserSession session, Models.Users.CreateUserDto dto);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserAsync(UserSession session, int internalKey, Models.Users.UpdateUserDto dto);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserByCodeAsync(UserSession session, string userCode, Models.Users.UpdateUserDto dto);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, Models.Users.ChangeUserPasswordDto dto);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, Models.Users.ChangeUserPasswordDto dto);
+
+        // System / SBOCOMMON.SRGC (Sociedades SAP)
+        Task<List<Models.Companies.CompanyDto>> GetSapCompaniesFromSrgcAsync(UserSession session);
     }
 }
 
