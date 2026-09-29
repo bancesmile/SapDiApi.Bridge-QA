@@ -307,5 +307,17 @@ namespace SapDiApi.Bridge.Models.Users
         /// </summary>
         [JsonPropertyName("NewPassword")]
         public string NewPassword { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Exigir cambio de clave en la próxima conexión ("tYES" / "tNO" o "Y" / "N").
+        /// </summary>
+        [JsonPropertyName("ChangePasswordNextLogon")]
+        public string? ChangePasswordNextLogon { get; set; }
+
+        /// <summary>
+        /// Indicar si la clave nunca vence ("tYES" / "tNO" o "Y" / "N").
+        /// </summary>
+        [JsonPropertyName("PasswordNeverExpires")]
+        public string? PasswordNeverExpires { get; set; }
     }
 }

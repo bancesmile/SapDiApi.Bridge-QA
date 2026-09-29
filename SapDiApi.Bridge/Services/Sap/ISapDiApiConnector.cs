@@ -32,8 +32,11 @@ namespace SapDiApi.Bridge.Services.Sap
         Task<(bool Success, int InternalKey, string? ErrorMessage)> CreateUserAsync(UserSession session, Models.Users.CreateUserDto dto);
         Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserAsync(UserSession session, int internalKey, Models.Users.UpdateUserDto dto);
         Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateUserByCodeAsync(UserSession session, string userCode, Models.Users.UpdateUserDto dto);
-        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, string newPassword);
-        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, string newPassword);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, Models.Users.ChangeUserPasswordDto dto);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, Models.Users.ChangeUserPasswordDto dto);
+
+        // System / SBOCOMMON.SRGC (Sociedades SAP)
+        Task<List<Models.Companies.CompanyDto>> GetSapCompaniesFromSrgcAsync(UserSession session);
     }
 }
 

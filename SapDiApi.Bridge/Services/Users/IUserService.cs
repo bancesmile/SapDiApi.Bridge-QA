@@ -12,7 +12,7 @@ namespace SapDiApi.Bridge.Services.Users
         Task<(bool Success, int InternalKey, string? ErrorMessage)> CreateAsync(CreateUserDto dto, UserSession? session = null);
         Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateAsync(int internalKey, UpdateUserDto dto, UserSession? session = null);
         Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateByCodeAsync(string userCode, UpdateUserDto dto, UserSession? session = null);
-        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordAsync(int internalKey, string newPassword, UserSession? session = null);
-        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordByCodeAsync(string userCode, string newPassword, UserSession? session = null);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordAsync(int internalKey, ChangeUserPasswordDto dto, UserSession? session = null);
+        Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordByCodeAsync(string userCode, ChangeUserPasswordDto dto, UserSession? session = null);
     }
 }

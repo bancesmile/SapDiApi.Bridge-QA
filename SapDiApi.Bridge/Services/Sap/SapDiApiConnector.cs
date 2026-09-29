@@ -6,6 +6,7 @@ using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Drafts;
 using SapDiApi.Bridge.Models.Users;
+using SapDiApi.Bridge.Models.Companies;
 using SapDiApi.Bridge.Infrastructure.Common;
 using SapDiApi.Bridge.Models.Sap;
 
@@ -2034,6 +2035,8 @@ namespace SapDiApi.Bridge.Services.Sap
                         string newKeyStr = company.GetNewObjectKey();
                         int.TryParse(newKeyStr, out int generatedKey);
 
+                        UpdateUserSecurityFlags(company, generatedKey, dto.ChangePasswordNextLogon, dto.PasswordNeverExpires, _logger);
+
                         _logger.LogInformation("Usuario '{UserCode}' creado exitosamente con InternalKey #{Key}", dto.UserCode, generatedKey);
                         return Task.FromResult((true, generatedKey, (string?)null));
                     }
@@ -2131,6 +2134,8 @@ namespace SapDiApi.Bridge.Services.Sap
                     int updateResult = oUsers.Update();
                     if (updateResult == 0)
                     {
+                        UpdateUserSecurityFlags(company, internalKey, dto.ChangePasswordNextLogon, dto.PasswordNeverExpires, _logger);
+
                         _logger.LogInformation("Usuario #{InternalKey} actualizado exitosamente en SAP.", internalKey);
                         return Task.FromResult((true, internalKey, (string?)null));
                     }
@@ -2148,7 +2153,7 @@ namespace SapDiApi.Bridge.Services.Sap
             });
         }
 
-        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, string newPassword)
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordAsync(UserSession session, int internalKey, ChangeUserPasswordDto dto)
         {
             var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
 
@@ -2167,11 +2172,16 @@ namespace SapDiApi.Bridge.Services.Sap
                         return Task.FromResult((false, internalKey, (string?)$"El usuario con InternalKey #{internalKey} no existe en SAP."));
                     }
 
-                    oUsers.UserPassword = newPassword;
+                    if (!string.IsNullOrEmpty(dto.NewPassword))
+                    {
+                        oUsers.UserPassword = dto.NewPassword;
+                    }
 
                     int updateResult = oUsers.Update();
                     if (updateResult == 0)
                     {
+                        UpdateUserSecurityFlags(company, internalKey, dto.ChangePasswordNextLogon, dto.PasswordNeverExpires, _logger);
+
                         _logger.LogInformation("Contraseña del usuario #{InternalKey} cambiada exitosamente en SAP.", internalKey);
                         return Task.FromResult((true, internalKey, (string?)null));
                     }
@@ -2200,7 +2210,7 @@ namespace SapDiApi.Bridge.Services.Sap
             return await UpdateUserAsync(session, user.InternalKey, dto);
         }
 
-        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, string newPassword)
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangeUserPasswordByCodeAsync(UserSession session, string userCode, ChangeUserPasswordDto dto)
         {
             var user = await GetUserByCodeAsync(session, userCode);
             if (user == null)
@@ -2208,7 +2218,152 @@ namespace SapDiApi.Bridge.Services.Sap
                 return (false, 0, $"El usuario con código '{userCode}' no existe en la sociedad '{session.CompanyDB}'.");
             }
 
-            return await ChangeUserPasswordAsync(session, user.InternalKey, newPassword);
+            return await ChangeUserPasswordAsync(session, user.InternalKey, dto);
+        }
+
+        public async Task<List<CompanyDto>> GetSapCompaniesFromSrgcAsync(UserSession session)
+        {
+            var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+            _logger.LogInformation("DI API: Consultando catálogo de sociedades en SAP (GetCompanyList / SRGC) | Operador: {AuditUser}",
+                session.AuditUser ?? session.UserName);
+
+            return await _companyPool.ExecuteAsync(connInfo, company =>
+            {
+                var list = new List<CompanyDto>();
+                Recordset? oRs = null;
+
+                // ESTRATEGIA 1: Método oficial nativo de la DI API (GetCompanyList)
+                // Este método consulta el SLD / License Server y NO requiere permisos cross-schema en HANA.
+                try
+                {
+                    oRs = company.GetCompanyList();
+                    if (oRs != null)
+                    {
+                        while (!oRs.EoF)
+                        {
+                            string? dbName = null;
+                            string? cmpName = null;
+
+                            try { dbName = GetSafeString(oRs, "dbName") ?? GetSafeString(oRs, "DBName"); } catch { }
+                            try { cmpName = GetSafeString(oRs, "cmpName") ?? GetSafeString(oRs, "CmpName") ?? dbName; } catch { }
+
+                            // Si los campos no vienen nombrados, intentar por índice 0 y 1
+                            if (string.IsNullOrWhiteSpace(dbName) && oRs.Fields.Count > 0)
+                            {
+                                dbName = oRs.Fields.Item(0).Value?.ToString();
+                            }
+                            if (string.IsNullOrWhiteSpace(cmpName) && oRs.Fields.Count > 1)
+                            {
+                                cmpName = oRs.Fields.Item(1).Value?.ToString();
+                            }
+
+                            if (!string.IsNullOrWhiteSpace(dbName))
+                            {
+                                list.Add(new CompanyDto
+                                {
+                                    SapDatabase = dbName,
+                                    CompanyName = !string.IsNullOrWhiteSpace(cmpName) ? cmpName : dbName,
+                                    IsActive = true
+                                });
+                            }
+                            oRs.MoveNext();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("company.GetCompanyList() devolvió excepción: {Msg}. Intentando consultas alternativas...", ex.Message);
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                    oRs = null;
+                }
+
+                if (list.Count > 0)
+                {
+                    _logger.LogInformation("GetCompanyList() obtuvo {Count} sociedades directamente desde SLD/SAP.", list.Count);
+                    return Task.FromResult(list);
+                }
+
+                // ESTRATEGIA 2: Consulta directa a SBOCOMMON.SRGC
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    string sql = "SELECT \"dbName\", \"cmpName\", \"LOC\", \"cmpStatus\" FROM \"SBOCOMMON\".\"SRGC\"";
+                    oRs.DoQuery(sql);
+
+                    while (!oRs.EoF)
+                    {
+                        var dbName = GetSafeString(oRs, "dbName") ?? string.Empty;
+                        var cmpName = GetSafeString(oRs, "cmpName") ?? dbName;
+                        var loc = GetSafeString(oRs, "LOC");
+                        var status = GetSafeString(oRs, "cmpStatus");
+                        bool isActive = status == "0" || string.IsNullOrEmpty(status);
+
+                        if (!string.IsNullOrWhiteSpace(dbName))
+                        {
+                            list.Add(new CompanyDto
+                            {
+                                SapDatabase = dbName,
+                                CompanyName = cmpName,
+                                Localization = loc,
+                                IsActive = isActive
+                            });
+                        }
+                        oRs.MoveNext();
+                    }
+                }
+                catch (Exception exSrgc)
+                {
+                    _logger.LogWarning("Consulta a SBOCOMMON.SRGC falló ({Msg}). Intentando SYS.SCHEMAS...", exSrgc.Message);
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                    oRs = null;
+                }
+
+                if (list.Count > 0)
+                {
+                    return Task.FromResult(list);
+                }
+
+                // ESTRATEGIA 3: Consulta a SYS.SCHEMAS (catálogo de esquemas de HANA)
+                try
+                {
+                    oRs = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                    string sql = "SELECT \"SCHEMA_NAME\" AS \"dbName\" FROM \"SYS\".\"SCHEMAS\" WHERE \"SCHEMA_NAME\" LIKE 'SBO%' OR \"SCHEMA_NAME\" LIKE 'SBODEMO%'";
+                    oRs.DoQuery(sql);
+
+                    while (!oRs.EoF)
+                    {
+                        var dbName = GetSafeString(oRs, "dbName") ?? string.Empty;
+                        if (!string.IsNullOrWhiteSpace(dbName) && !dbName.Equals("SBOCOMMON", StringComparison.OrdinalIgnoreCase))
+                        {
+                            list.Add(new CompanyDto
+                            {
+                                SapDatabase = dbName,
+                                CompanyName = dbName,
+                                IsActive = true
+                            });
+                        }
+                        oRs.MoveNext();
+                    }
+                }
+                catch (Exception exSys)
+                {
+                    _logger.LogError(exSys, "Fallo al consultar SYS.SCHEMAS en HANA.");
+                    throw new InvalidOperationException($"No se pudo obtener la lista de sociedades desde SAP (GetCompanyList / SRGC / SYS.SCHEMAS): {exSys.Message}");
+                }
+                finally
+                {
+                    ComHelper.Release(oRs);
+                }
+
+                return Task.FromResult(list);
+            });
         }
 
         private static UserDto MapUserDtoFromRecordset(Recordset oRs)
@@ -2379,6 +2534,44 @@ namespace SapDiApi.Bridge.Services.Sap
             catch
             {
                 // Ignorar si el UDF no está configurado en SAP
+            }
+        }
+
+        private static void UpdateUserSecurityFlags(Company company, int internalKey, string? changePasswordNextLogon, string? passwordNeverExpires, ILogger logger)
+        {
+            if (string.IsNullOrWhiteSpace(changePasswordNextLogon) && string.IsNullOrWhiteSpace(passwordNeverExpires))
+            {
+                return;
+            }
+
+            Recordset? oRsFlags = null;
+            try
+            {
+                oRsFlags = (Recordset)company.GetBusinessObject(BoObjectTypes.BoRecordset);
+                var updates = new List<string>();
+                if (!string.IsNullOrWhiteSpace(changePasswordNextLogon))
+                {
+                    string val = (changePasswordNextLogon.Equals("tYES", StringComparison.OrdinalIgnoreCase) || changePasswordNextLogon.Equals("Y", StringComparison.OrdinalIgnoreCase) || changePasswordNextLogon.Equals("true", StringComparison.OrdinalIgnoreCase)) ? "Y" : "N";
+                    updates.Add($"\"OneLogPwd\" = '{val}'");
+                }
+                if (!string.IsNullOrWhiteSpace(passwordNeverExpires))
+                {
+                    string val = (passwordNeverExpires.Equals("tYES", StringComparison.OrdinalIgnoreCase) || passwordNeverExpires.Equals("Y", StringComparison.OrdinalIgnoreCase) || passwordNeverExpires.Equals("true", StringComparison.OrdinalIgnoreCase)) ? "Y" : "N";
+                    updates.Add($"\"PassNever\" = '{val}'");
+                }
+                if (updates.Count > 0)
+                {
+                    string updateSql = $"UPDATE \"OUSR\" SET {string.Join(", ", updates)} WHERE \"USERID\" = {internalKey}";
+                    oRsFlags.DoQuery(updateSql);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "No se pudieron actualizar los flags OneLogPwd/PassNever en OUSR para el usuario #{InternalKey}", internalKey);
+            }
+            finally
+            {
+                ComHelper.Release(oRsFlags);
             }
         }
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Options;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Services.Auth;
+using SapDiApi.Bridge.Services.Companies;
 
 namespace SapDiApi.Bridge.Infrastructure.Security
 {
@@ -10,17 +11,20 @@ namespace SapDiApi.Bridge.Infrastructure.Security
     {
         private readonly ISessionManager _sessionManager;
         private readonly ApiKeyOptions _apiKeyOptions;
+        private readonly ICompanyResolverService _companyResolver;
         private readonly IConfiguration _configuration;
         private readonly ILogger<B1SessionAuthFilter> _logger;
 
         public B1SessionAuthFilter(
             ISessionManager sessionManager,
             IOptions<ApiKeyOptions> apiKeyOptions,
+            ICompanyResolverService companyResolver,
             IConfiguration configuration,
             ILogger<B1SessionAuthFilter> logger)
         {
             _sessionManager = sessionManager;
             _apiKeyOptions = apiKeyOptions.Value;
+            _companyResolver = companyResolver;
             _configuration = configuration;
             _logger = logger;
         }
@@ -87,37 +91,60 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                 var client = _apiKeyOptions.GetClient(extractedApiKey);
                 if (client != null)
                 {
-                    // Resolver CompanyDB dinámica: Cabecera -> QueryParam -> appsettings DefaultCompanyDB
-                    string? companyDb = null;
-                    if (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
-                        httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
-                        httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader))
+                    // 1. Extraer identificador de empresa: X-Company-Id -> X-Company-Code -> X-Company-DB -> Query params
+                    string? rawCompanyIdentifier = null;
+
+                    if (httpContext.Request.Headers.TryGetValue("X-Company-Id", out var compIdHeader) ||
+                        httpContext.Request.Headers.TryGetValue("CompanyId", out compIdHeader) ||
+                        httpContext.Request.Headers.TryGetValue("X-Company-ID", out compIdHeader))
                     {
-                        companyDb = dbHeader.FirstOrDefault();
+                        rawCompanyIdentifier = compIdHeader.FirstOrDefault();
                     }
 
-                    if (string.IsNullOrWhiteSpace(companyDb) &&
-                        (httpContext.Request.Query.TryGetValue("companyDB", out var queryDb) ||
-                         httpContext.Request.Query.TryGetValue("CompanyDB", out queryDb) ||
-                         httpContext.Request.Query.TryGetValue("company_db", out queryDb)))
+                    if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                        (httpContext.Request.Headers.TryGetValue("X-Company-Code", out var codeHeader) ||
+                         httpContext.Request.Headers.TryGetValue("CompanyCode", out codeHeader)))
                     {
-                        companyDb = queryDb.FirstOrDefault();
+                        rawCompanyIdentifier = codeHeader.FirstOrDefault();
                     }
+
+                    if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                        (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
+                         httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
+                         httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader)))
+                    {
+                        rawCompanyIdentifier = dbHeader.FirstOrDefault();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                        (httpContext.Request.Query.TryGetValue("companyId", out var queryId) ||
+                         httpContext.Request.Query.TryGetValue("company_id", out queryId) ||
+                         httpContext.Request.Query.TryGetValue("companyCode", out queryId) ||
+                         httpContext.Request.Query.TryGetValue("company_code", out queryId) ||
+                         httpContext.Request.Query.TryGetValue("companyDB", out queryId) ||
+                         httpContext.Request.Query.TryGetValue("company_db", out queryId)))
+                    {
+                        rawCompanyIdentifier = queryId.FirstOrDefault();
+                    }
+
+                    // 2. Resolver a través de ICompanyResolverService (en RAM, 0 ms)
+                    var (found, companyDto, resolvedDbName) = _companyResolver.ResolveCompany(rawCompanyIdentifier);
+                    string companyDb = resolvedDbName;
 
                     if (string.IsNullOrWhiteSpace(companyDb))
                     {
                         companyDb = _configuration["SapSettings:DefaultCompanyDB"] ?? string.Empty;
                     }
 
-                    // Validar si la aplicación cliente tiene permiso para acceder a esta sociedad
-                    if (!_apiKeyOptions.IsCompanyAllowed(client, companyDb))
+                    // 3. Validar si el cliente tiene permiso para acceder a esta sociedad
+                    if (!_apiKeyOptions.IsCompanyAllowed(client, companyDb, companyDto))
                     {
-                        _logger.LogWarning("Acceso prohibido: La aplicación '{ClientName}' ({ClientId}) no tiene permisos sobre la sociedad '{CompanyDB}'.",
-                            client.Name, client.Id, companyDb);
+                        _logger.LogWarning("Acceso prohibido: La aplicación '{ClientName}' ({ClientId}) no tiene permisos sobre la sociedad '{CompanyDB}' (Id/Code: {Identifier}).",
+                            client.Name, client.Id, companyDb, rawCompanyIdentifier);
 
                         var forbiddenPayload = ServiceLayerErrorResponse.Create(
                             code: 403,
-                            message: $"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP '{companyDb}'."
+                            message: $"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP solicitada ('{rawCompanyIdentifier ?? companyDb}')."
                         );
 
                         context.Result = new ObjectResult(forbiddenPayload)
@@ -126,6 +153,11 @@ namespace SapDiApi.Bridge.Infrastructure.Security
                         };
 
                         return Task.CompletedTask;
+                    }
+
+                    if (companyDto != null)
+                    {
+                        httpContext.Items["Company"] = companyDto;
                     }
 
                     // Resolver usuario y contraseña de servicio SAP desde appsettings

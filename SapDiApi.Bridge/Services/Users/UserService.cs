@@ -85,7 +85,7 @@ namespace SapDiApi.Bridge.Services.Users
             return await _sapConnector.UpdateUserAsync(session, internalKey, dto);
         }
 
-        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordAsync(int internalKey, string newPassword, UserSession? session = null)
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordAsync(int internalKey, ChangeUserPasswordDto dto, UserSession? session = null)
         {
             if (session == null)
             {
@@ -95,7 +95,7 @@ namespace SapDiApi.Bridge.Services.Users
             _logger.LogInformation("Cambiando contraseña de Usuario #{InternalKey} en SAP | Operador: {AuditUser} | DB: {DB}",
                 internalKey, session.AuditUser ?? session.UserName, session.CompanyDB);
 
-            return await _sapConnector.ChangeUserPasswordAsync(session, internalKey, newPassword);
+            return await _sapConnector.ChangeUserPasswordAsync(session, internalKey, dto);
         }
 
         public async Task<(bool Success, int InternalKey, string? ErrorMessage)> UpdateByCodeAsync(string userCode, UpdateUserDto dto, UserSession? session = null)
@@ -111,7 +111,7 @@ namespace SapDiApi.Bridge.Services.Users
             return await _sapConnector.UpdateUserByCodeAsync(session, userCode, dto);
         }
 
-        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordByCodeAsync(string userCode, string newPassword, UserSession? session = null)
+        public async Task<(bool Success, int InternalKey, string? ErrorMessage)> ChangePasswordByCodeAsync(string userCode, ChangeUserPasswordDto dto, UserSession? session = null)
         {
             if (session == null)
             {
@@ -121,7 +121,7 @@ namespace SapDiApi.Bridge.Services.Users
             _logger.LogInformation("Cambiando contraseña de Usuario '{UserCode}' en SAP | Operador: {AuditUser} | DB: {DB}",
                 userCode, session.AuditUser ?? session.UserName, session.CompanyDB);
 
-            return await _sapConnector.ChangeUserPasswordByCodeAsync(session, userCode, newPassword);
+            return await _sapConnector.ChangeUserPasswordByCodeAsync(session, userCode, dto);
         }
     }
 }

@@ -192,10 +192,12 @@ namespace SapDiApi.Bridge.Controllers
         /// </summary>
         /// <remarks>
         /// Permite a un administrador cambiar o resetear la clave de acceso de un usuario en SAP Business One.
+        /// Opcionalmente permite forzar cambio de clave en el próximo inicio de sesión (`ChangePasswordNextLogon: "tYES"`)
+        /// y/o configurar si nunca vence (`PasswordNeverExpires: "tYES"`).
         /// Endpoint: `POST /api/v1/Users(200)/ChangePassword` o `/b1s/v1/Users(200)/ChangePassword`.
         /// </remarks>
         /// <param name="id">Clave interna del usuario (InternalKey).</param>
-        /// <param name="dto">Nueva contraseña para el usuario.</param>
+        /// <param name="dto">Nueva contraseña y banderas opcionales de expiración/próximo inicio de sesión.</param>
         /// <response code="200">Contraseña cambiada exitosamente.</response>
         /// <response code="400">Error al cambiar contraseña.</response>
         /// <response code="401">No autorizado - Sesión B1SESSION requerida.</response>
@@ -213,7 +215,7 @@ namespace SapDiApi.Bridge.Controllers
             }
 
             var session = HttpContext.Items["UserSession"] as UserSession;
-            var (success, internalKey, errorMessage) = await _userService.ChangePasswordAsync(id, dto.NewPassword, session);
+            var (success, internalKey, errorMessage) = await _userService.ChangePasswordAsync(id, dto, session);
 
             if (!success)
             {
@@ -258,7 +260,8 @@ namespace SapDiApi.Bridge.Controllers
         /// Cambiar o restablecer contraseña por código de usuario (UserCode)
         /// </summary>
         /// <remarks>
-        /// Ideal para reset masivo multi-empresa.
+        /// Ideal para reset masivo o multi-empresa. Permite además forzar cambio de contraseña en próxima conexión
+        /// enviando `ChangePasswordNextLogon: "tYES"`.
         /// Endpoint: `POST /api/v1/Users('creditos08')/ChangePassword` o `/b1s/v1/Users('creditos08')/ChangePassword`.
         /// </remarks>
         [HttpPost]
@@ -275,7 +278,7 @@ namespace SapDiApi.Bridge.Controllers
             }
 
             var session = HttpContext.Items["UserSession"] as UserSession;
-            var (success, internalKey, errorMessage) = await _userService.ChangePasswordByCodeAsync(cleanCode, dto.NewPassword, session);
+            var (success, internalKey, errorMessage) = await _userService.ChangePasswordByCodeAsync(cleanCode, dto, session);
 
             if (!success)
             {

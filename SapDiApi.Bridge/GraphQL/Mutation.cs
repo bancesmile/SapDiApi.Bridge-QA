@@ -275,13 +275,21 @@ namespace SapDiApi.Bridge.GraphQL
         public async Task<UserMutationResult> ChangeUserPassword(
             int internalKey,
             string newPassword,
+            string? changePasswordNextLogon,
+            string? passwordNeverExpires,
             [Service] IUserService userService,
             [Service] IHttpContextAccessor httpContextAccessor,
             [Service] ISessionManager sessionManager,
             [Service] IOptions<ApiKeyOptions> apiKeyOptions)
         {
             var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
-            var (success, resultKey, errorMessage) = await userService.ChangePasswordAsync(internalKey, newPassword, session);
+            var dto = new ChangeUserPasswordDto
+            {
+                NewPassword = newPassword,
+                ChangePasswordNextLogon = changePasswordNextLogon,
+                PasswordNeverExpires = passwordNeverExpires
+            };
+            var (success, resultKey, errorMessage) = await userService.ChangePasswordAsync(internalKey, dto, session);
 
             if (!success)
             {
