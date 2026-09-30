@@ -4,6 +4,7 @@ using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.Invoices;
 using SapDiApi.Bridge.Models.Sap;
 using System.Runtime.InteropServices;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace SapDiApi.Bridge.Services.Sap
 {
@@ -57,167 +58,597 @@ namespace SapDiApi.Bridge.Services.Sap
                 return (false, ex.Message);
             }
         }
-        public Task<(bool success, string message, int? docEntry, int? docNum)> CrearFacturaDeudoresSap(ApiClientConfig session, FacturaDeudoresDto request)
+        public async Task<(bool success, string message, int? docEntry, int? docNum)>
+    CrearFacturaDeudoresSap(
+        ApiClientConfig sessionKey,
+        FacturaDeudoresDto request, string companyDB)
         {
-            Documents factura = null;
+            var session = new UserSession
+            {
+                CompanyDB = companyDB,
+                UserName = "manager",
+                Password = "M!l3$2300"
+            };
+
+            var connInfo = BuildConnectionInfo(
+                session.CompanyDB,
+                session.UserName,
+                session.Password
+            );
 
             try
             {
-                factura = (Documents)session.Company.GetBusinessObject(BoObjectTypes.oInvoices);
-                factura.DocType = BoDocumentTypes.dDocument_Items;
-                factura.CardCode = request.CardCode;
-                factura.DocDate = request.DocDate.Value;
-                factura.DocDueDate = request.DocDueDate.Value;
-                factura.TaxDate = request.TaxDate;
-                factura.DocCurrency = request.DocCurrency;
-                factura.Comments = request.Comments;
-                factura.JournalMemo = request.JournalMemo;
-                factura.PayToCode = request.PayToCode;
-                factura.Series = request.Series;
-                // ==========================
-                // UDF CABECERA
-                // ==========================
-                SetUserField(factura, "U_Nit", request.U_Nit);
-                SetUserField(factura, "U_Nombre", request.U_Nombre);
-                SetUserField(factura, "U_FE_Correos", request.U_FE_Correos);
-                SetUserField(factura, "U_FE_Status", request.U_FE_Status);
-                SetUserField(factura, "U_TipoDoctoSAT", request.U_TipoDoctoSAT);
-                SetUserField(factura, "U_DoctoFiscal", request .U_DoctoFiscal);
-                SetUserField(factura, "U_FE_Establecimiento", request.U_FE_Establecimiento);
-                SetUserField(factura, "U_Direccion", request.U_Direccion);
-                SetUserField(factura, "U_Inmueble", request.U_Inmueble);
-                SetUserField(factura, "U_Convenio", request.U_Convenio);
+                return await _companyPool.ExecuteAsync(
+                    connInfo,
+                    company =>
+                    {
+                        Documents factura = null;
+                        Documents facturaCreada = null;
 
-                // ==========================
-                // DETALLE
-                // ==========================
-                if (request.DocumentLines == null ||
-                    request.DocumentLines.Count == 0)
-                {
-                    return Task.FromResult((
-                        success: false,
-                        message: "La factura debe contener al menos una línea.",
-                        docEntry: (int?)null,
-                        docNum: (int?)null
-                    ));
-                }
+                        try
+                        {
+                            // ==========================
+                            // CREAR OBJETO FACTURA
+                            // ==========================
 
-                for (int i = 0; i < request.DocumentLines.Count; i++)
-                {
-                    var linea = request.DocumentLines[i];
+                            factura = (Documents) company.GetBusinessObject(
+                                BoObjectTypes.oInvoices
+                            );
 
-                    if (i > 0)
-                        factura.Lines.Add();
+                            // ==========================
+                            // CABECERA
+                            // ==========================
 
-                    factura.Lines.ItemCode = linea.ItemCode;
+                            factura.DocType =
+                                BoDocumentTypes.dDocument_Items;
 
-                    if (!string.IsNullOrWhiteSpace(linea.ItemDescription))
-                        factura.Lines.ItemDescription = linea.ItemDescription;
+                            factura.CardCode = request.CardCode;
 
-                    factura.Lines.Quantity = linea.Quantity;
+                            if (request.DocDate.HasValue)
+                                factura.DocDate =
+                                    request.DocDate.Value;
 
-                    factura.Lines.UnitPrice = linea.Price;
+                            if (request.DocDueDate.HasValue)
+                                factura.DocDueDate =
+                                    request.DocDueDate.Value;
 
-                    if (!string.IsNullOrWhiteSpace(linea.Currency))
-                        factura.Lines.Currency =
-                            linea.Currency;
+                            factura.TaxDate =
+                                request.TaxDate;
 
-                    if (!string.IsNullOrWhiteSpace(linea.CostingCode))
-                        factura.Lines.CostingCode = linea.CostingCode;
+                            factura.DocCurrency =
+                                request.DocCurrency;
 
-                    if (!string.IsNullOrWhiteSpace(linea.TaxCode))
-                        factura.Lines.TaxCode = linea.TaxCode;
-                    // UDF de las líneas
-                    SetUserFieldLinea(factura.Lines, "U_Tipo", linea.U_Tipo);
-                    SetUserFieldLinea(factura.Lines, "U_Inmueble", linea.U_Inmueble);
-                }
+                            if (!string.IsNullOrWhiteSpace(
+                                    request.Comments))
+                            {
+                                factura.Comments =
+                                    request.Comments;
+                            }
 
-                // ==========================
-                // TAX EXTENSION
-                // ==========================
+                            if (!string.IsNullOrWhiteSpace(
+                                    request.JournalMemo))
+                            {
+                                factura.JournalMemo =
+                                    request.JournalMemo;
+                            }
 
-                if (request.TaxExtension != null)
-                {
-                    var tax = factura.TaxExtension;
+                            if (!string.IsNullOrWhiteSpace(
+                                    request.PayToCode))
+                            {
+                                factura.PayToCode =
+                                    request.PayToCode;
+                            }
 
-                    if (!string.IsNullOrWhiteSpace(request.TaxExtension.StreetB))
-                        tax.StreetB = request.TaxExtension.StreetB;
+                            if (request.Series > 0)
+                            {
+                                factura.Series =
+                                    request.Series;
+                            }
 
-                    if (!string.IsNullOrWhiteSpace(request.TaxExtension.CityB))
-                        tax.CityB = request.TaxExtension.CityB;
+                            // ==========================
+                            // UDF CABECERA
+                            // ==========================
 
-                    if (!string.IsNullOrWhiteSpace(request.TaxExtension.CountyB))
-                        tax.CountyB = request.TaxExtension.CountyB;
+                            SetUserField(
+                                factura,
+                                "U_Nit",
+                                request.U_Nit
+                            );
 
-                    if (!string.IsNullOrWhiteSpace(request.TaxExtension.StateB))
-                        tax.StateB = request.TaxExtension.StateB;
+                            SetUserField(
+                                factura,
+                                "U_Nombre",
+                                request.U_Nombre
+                            );
 
-                    if (!string.IsNullOrWhiteSpace(request.TaxExtension.CountryB))
-                        tax.CountryB = request.TaxExtension.CountryB;
-                }
+                            SetUserField(
+                                factura,
+                                "U_FE_Correos",
+                                request.U_FE_Correos
+                            );
 
-                // ==========================
-                // CREAR EN SAP
-                // ==========================
+                            SetUserField(
+                                factura,
+                                "U_FE_Status",
+                                request.U_FE_Status
+                            );
 
-                int resultado = factura.Add();
+                            SetUserField(
+                                factura,
+                                "U_TipoDoctoSAT",
+                                request.U_TipoDoctoSAT
+                            );
 
-                if (resultado != 0)
-                {
-                    sapConnector.GetLastError(out int errorCode,out string errorMessage);
+                            SetUserField(
+                                factura,
+                                "U_DoctoFiscal",
+                                request.U_DoctoFiscal
+                            );
 
-                    return Task.FromResult((
-                        success: false,
-                        message: $"SAP {errorCode}: {errorMessage}",
-                        docEntry: (int?)null,
-                        docNum: (int?)null
-                    ));
-                }
+                            SetUserField(
+                                factura,
+                                "U_FE_Establecimiento",
+                                request.U_FE_Establecimiento
+                            );
 
-                int docEntry =Convert.ToInt32(sapConnector.GetNewObjectKey());
+                            SetUserField(
+                                factura,
+                                "U_Direccion",
+                                request.U_Direccion
+                            );
 
-                // Buscar DocNum
-                Documents facturaCreada = (Documents) sapConnector.GetBusinessObject(
-                        BoObjectTypes.oInvoices
-                    );
+                            SetUserField(
+                                factura,
+                                "U_Inmueble",
+                                request.U_Inmueble
+                            );
 
-                int? docNum = null;
+                            SetUserField(
+                                factura,
+                                "U_Convenio",
+                                request.U_Convenio
+                            );
 
-                if (facturaCreada.GetByKey(docEntry))
-                {
-                    docNum = facturaCreada.DocNum;
-                }
+                            // ==========================
+                            // VALIDAR DETALLE
+                            // ==========================
 
-                Marshal.ReleaseComObject(facturaCreada);
+                            if (request.DocumentLines == null ||
+                                request.DocumentLines.Count == 0)
+                            {
+                                return Task.FromResult((
+                                    success: false,
+                                    message:
+                                        "La factura debe contener al menos una línea.",
+                                    docEntry: (int?) null,
+                                    docNum: (int?) null
+                                ));
+                            }
 
-                return Task.FromResult((
-                    success: true,
-                    message: "Factura de deudores creada correctamente.",
-                    docEntry: (int?)docEntry,
-                    docNum: docNum
-                ));
+                            // ==========================
+                            // DETALLE
+                            // ==========================
+
+                            for (int i = 0;
+                                 i < request.DocumentLines.Count;
+                                 i++)
+                            {
+                                var linea =
+                                    request.DocumentLines[i];
+
+                                if (i > 0)
+                                    factura.Lines.Add();
+
+                                factura.Lines.ItemCode =
+                                    linea.ItemCode;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        linea.ItemDescription))
+                                {
+                                    factura.Lines.ItemDescription =
+                                        linea.ItemDescription;
+                                }
+
+                                factura.Lines.Quantity =
+                                    linea.Quantity;
+
+                                factura.Lines.UnitPrice =
+                                    linea.Price;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        linea.Currency))
+                                {
+                                    factura.Lines.Currency =
+                                        linea.Currency;
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        linea.CostingCode))
+                                {
+                                    factura.Lines.CostingCode =
+                                        linea.CostingCode;
+                                }
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        linea.TaxCode))
+                                {
+                                    factura.Lines.TaxCode =
+                                        linea.TaxCode;
+                                }
+
+                                SetUserFieldLinea(
+                                    factura.Lines,
+                                    "U_Tipo",
+                                    linea.U_Tipo
+                                );
+
+                                SetUserFieldLinea(
+                                    factura.Lines,
+                                    "U_Inmueble",
+                                    linea.U_Inmueble
+                                );
+                            }
+
+                            // ==========================
+                            // TAX EXTENSION
+                            // ==========================
+
+                            if (request.TaxExtension != null)
+                            {
+                                var tax =
+                                    factura.TaxExtension;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        request.TaxExtension.StreetB))
+                                    tax.StreetB =
+                                        request.TaxExtension.StreetB;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        request.TaxExtension.CityB))
+                                    tax.CityB =
+                                        request.TaxExtension.CityB;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        request.TaxExtension.CountyB))
+                                    tax.CountyB =
+                                        request.TaxExtension.CountyB;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        request.TaxExtension.StateB))
+                                    tax.StateB =
+                                        request.TaxExtension.StateB;
+
+                                if (!string.IsNullOrWhiteSpace(
+                                        request.TaxExtension.CountryB))
+                                    tax.CountryB =
+                                        request.TaxExtension.CountryB;
+                            }
+
+                            // ==========================
+                            // CREAR EN SAP
+                            // ==========================
+
+                            int resultado =
+                                factura.Add();
+
+                            if (resultado != 0)
+                            {
+                                company.GetLastError(
+                                    out int errorCode,
+                                    out string errorMessage
+                                );
+
+                                return Task.FromResult((
+                                    success: false,
+                                    message:
+                                        $"SAP {errorCode}: {errorMessage}",
+                                    docEntry: (int?) null,
+                                    docNum: (int?) null
+                                ));
+                            }
+
+                            // ==========================
+                            // OBTENER DOCENTRY
+                            // ==========================
+
+                            int docEntry =
+                                Convert.ToInt32(
+                                    company.GetNewObjectKey()
+                                );
+
+                            // ==========================
+                            // OBTENER DOCNUM
+                            // ==========================
+
+                            int? docNum = null;
+
+                            facturaCreada =
+                                (Documents) company.GetBusinessObject(
+                                    BoObjectTypes.oInvoices
+                                );
+
+                            if (facturaCreada.GetByKey(docEntry))
+                            {
+                                docNum =
+                                    facturaCreada.DocNum;
+                            }
+
+                            return Task.FromResult((
+                                success: true,
+                                message:
+                                    "Factura creada correctamente.",
+                                docEntry: (int?) docEntry,
+                                docNum: docNum
+                            ));
+                        }
+                        catch (Exception ex)
+                        {
+                            return Task.FromResult((
+                                success: false,
+                                message: ex.Message,
+                                docEntry: (int?) null,
+                                docNum: (int?) null
+                            ));
+                        }
+                        finally
+                        {
+                            if (facturaCreada != null)
+                            {
+                                Marshal.ReleaseComObject(
+                                    facturaCreada
+                                );
+                            }
+
+                            if (factura != null)
+                            {
+                                Marshal.ReleaseComObject(
+                                    factura
+                                );
+                            }
+                        }
+                    }
+                );
             }
             catch (Exception ex)
             {
-                return Task.FromResult((
+                return (
                     success: false,
-                    message: ex.Message,
-                    docEntry: (int?)null,
-                    docNum: (int?)null
-                ));
-            }
-            finally
-            {
-                if (factura != null)
-                {
-                    Marshal.ReleaseComObject(factura);
-                    factura = null;
-                }
-
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                    message:
+                        $"Error conectando con SAP: {ex.Message}",
+                    docEntry: null,
+                    docNum: null
+                );
             }
         }
+        //    public Task<(bool success, string message, int? docEntry, int? docNum)>
+        //CrearFacturaDeudoresSap(
+        //    ApiClientConfig sessionKey,
+        //    FacturaDeudoresDto request)
+        //    {
+        //        var session = new UserSession
+        //        {
+        //            CompanyDB = "TEST_SBO_ASOCSDCII_BI",
+        //            UserName = "manager",
+        //            Password = "M!l3$2300"
+        //        };
+        //        var connInfo = BuildConnectionInfo(session.CompanyDB, session.UserName, session.Password);
+
+        //        return await _companyPool.ExecuteAsync(connInfo, company =>
+        //        {
+        //            Documents factura = null;
+
+        //            try
+        //            {
+        //                factura = (Documents) company.GetBusinessObject(
+        //                    BoObjectTypes.oInvoices
+        //                );
+
+        //                factura.DocType = BoDocumentTypes.dDocument_Items;
+        //                factura.CardCode = request.CardCode;
+
+        //                if (request.DocDate.HasValue)
+        //                    factura.DocDate = request.DocDate.Value;
+
+        //                if (request.DocDueDate.HasValue)
+        //                    factura.DocDueDate = request.DocDueDate.Value;
+
+        //                factura.TaxDate = request.TaxDate;
+
+        //                factura.DocCurrency = request.DocCurrency;
+
+        //                if (!string.IsNullOrWhiteSpace(request.Comments))
+        //                    factura.Comments = request.Comments;
+
+        //                if (!string.IsNullOrWhiteSpace(request.JournalMemo))
+        //                    factura.JournalMemo = request.JournalMemo;
+
+        //                if (!string.IsNullOrWhiteSpace(request.PayToCode))
+        //                    factura.PayToCode = request.PayToCode;
+
+        //                if (request.Series > 0)
+        //                    factura.Series = request.Series;
+
+        //                // ==========================
+        //                // UDF CABECERA
+        //                // ==========================
+
+        //                SetUserField(factura, "U_Nit", request.U_Nit);
+        //                SetUserField(factura, "U_Nombre", request.U_Nombre);
+        //                SetUserField(factura, "U_FE_Correos", request.U_FE_Correos);
+        //                SetUserField(factura, "U_FE_Status", request.U_FE_Status);
+        //                SetUserField(factura, "U_TipoDoctoSAT", request.U_TipoDoctoSAT);
+        //                SetUserField(factura, "U_DoctoFiscal", request.U_DoctoFiscal);
+        //                SetUserField(factura, "U_FE_Establecimiento", request.U_FE_Establecimiento);
+
+        //                SetUserField(factura, "U_Direccion", request.U_Direccion);
+        //                SetUserField(factura, "U_Inmueble", request.U_Inmueble);
+        //                SetUserField(factura, "U_Convenio", request.U_Convenio);
+
+        //                // ==========================
+        //                // DETALLE
+        //                // ==========================
+
+        //                if (request.DocumentLines == null ||
+        //                    request.DocumentLines.Count == 0)
+        //                {
+        //                    return Task.FromResult((
+        //                        success: false,
+        //                        message: "La factura debe contener al menos una línea.",
+        //                        docEntry: (int?) null,
+        //                        docNum: (int?) null
+        //                    ));
+        //                }
+
+        //                for (int i = 0; i < request.DocumentLines.Count; i++)
+        //                {
+        //                    var linea = request.DocumentLines[i];
+
+        //                    if (i > 0)
+        //                        factura.Lines.Add();
+
+        //                    factura.Lines.ItemCode = linea.ItemCode;
+
+        //                    if (!string.IsNullOrWhiteSpace(linea.ItemDescription))
+        //                        factura.Lines.ItemDescription =
+        //                            linea.ItemDescription;
+
+        //                    factura.Lines.Quantity = linea.Quantity;
+        //                    factura.Lines.UnitPrice = linea.Price;
+
+        //                    if (!string.IsNullOrWhiteSpace(linea.Currency))
+        //                        factura.Lines.Currency = linea.Currency;
+
+        //                    if (!string.IsNullOrWhiteSpace(linea.CostingCode))
+        //                        factura.Lines.CostingCode =
+        //                            linea.CostingCode;
+
+        //                    if (!string.IsNullOrWhiteSpace(linea.TaxCode))
+        //                        factura.Lines.TaxCode =
+        //                            linea.TaxCode;
+
+        //                    SetUserFieldLinea(
+        //                        factura.Lines,
+        //                        "U_Tipo",
+        //                        linea.U_Tipo
+        //                    );
+
+        //                    SetUserFieldLinea(
+        //                        factura.Lines,
+        //                        "U_Inmueble",
+        //                        linea.U_Inmueble
+        //                    );
+        //                }
+
+        //                // ==========================
+        //                // TAX EXTENSION
+        //                // ==========================
+
+        //                if (request.TaxExtension != null)
+        //                {
+        //                    var tax = factura.TaxExtension;
+
+        //                    if (!string.IsNullOrWhiteSpace(
+        //                            request.TaxExtension.StreetB))
+        //                        tax.StreetB =
+        //                            request.TaxExtension.StreetB;
+
+        //                    if (!string.IsNullOrWhiteSpace(
+        //                            request.TaxExtension.CityB))
+        //                        tax.CityB =
+        //                            request.TaxExtension.CityB;
+
+        //                    if (!string.IsNullOrWhiteSpace(
+        //                            request.TaxExtension.CountyB))
+        //                        tax.CountyB =
+        //                            request.TaxExtension.CountyB;
+
+        //                    if (!string.IsNullOrWhiteSpace(
+        //                            request.TaxExtension.StateB))
+        //                        tax.StateB =
+        //                            request.TaxExtension.StateB;
+
+        //                    if (!string.IsNullOrWhiteSpace(
+        //                            request.TaxExtension.CountryB))
+        //                        tax.CountryB =
+        //                            request.TaxExtension.CountryB;
+        //                }
+
+        //                // ==========================
+        //                // CREAR FACTURA
+        //                // ==========================
+
+        //                int resultado = factura.Add();
+
+        //                if (resultado != 0)
+        //                {
+        //                    sapConnector.GetLastError(
+        //                        out int errorCode,
+        //                        out string errorMessage
+        //                    );
+
+        //                    return Task.FromResult((
+        //                        success: false,
+        //                        message:
+        //                            $"SAP {errorCode}: {errorMessage}",
+        //                        docEntry: (int?) null,
+        //                        docNum: (int?) null
+        //                    ));
+        //                }
+
+        //                int docEntry =
+        //        Convert.ToInt32(company.GetNewObjectKey());
+
+        //                return Task.FromResult((
+        //                    success: true,
+        //                    message: "Factura creada correctamente.",
+        //                    docEntry: (int?) docEntry,
+        //                    docNum: (int?) null
+        //                ));
+        //            }
+        //            finally
+        //            {
+        //                if (factura != null)
+        //                {
+        //                    Marshal.ReleaseComObject(factura);
+        //                }
+        //            }
+        //        }
+
+        //        //    try
+        //        //    {
+
+        //        //    int docEntry =
+        //        //        Convert.ToInt32(
+        //        //            sapConnector.GetNewObjectKey()
+        //        //        );
+
+        //        //    // ==========================
+        //        //    // OBTENER DOCNUM
+        //        //    // ==========================
+
+        //        //    Documents facturaCreada = null;
+        //        //}
+        //        //catch (Exception ex)
+        //        //{
+        //        //    return Task.FromResult((
+        //        //        success: false,
+        //        //        message: ex.Message,
+        //        //        docEntry: (int?) null,
+        //        //        docNum: (int?) null
+        //        //    ));
+        //        //}
+        //        //finally
+        //        //{
+        //        //    if (factura != null)
+        //        //    {
+        //        //        Marshal.ReleaseComObject(factura);
+        //        //        factura = null;
+        //        //    }
+
+        //        //    GC.Collect();
+        //        //    GC.WaitForPendingFinalizers();
+        //        //}
+        //    }
         private void SetUserField(
             Documents documento,
             string campo,

@@ -20,7 +20,7 @@ namespace SapDiApi.Bridge.Services.Invoices
         }
 
         public async Task<(bool success, string message, int? docEntry, int? docNum)>
-            CrearFacturaDeudoresAsync(FacturaDeudoresDto dto, ApiClientConfig? session = null)
+            CrearFacturaDeudoresAsync(FacturaDeudoresDto dto, ApiClientConfig? session = null, string companyDB = "")
         {
             try
             {
@@ -28,7 +28,7 @@ namespace SapDiApi.Bridge.Services.Invoices
                 {
                     return (false, "Se requiere una sesión activa (B1SESSION) para crear socios de negocio en SAP.", null, null);
                 }
-                var result = await _sapConnectorFacturas.CrearFacturaDeudoresSap(session,dto);
+                var result = await _sapConnectorFacturas.CrearFacturaDeudoresSap(session,dto, companyDB);
 
                 if (!result.success)
                 {

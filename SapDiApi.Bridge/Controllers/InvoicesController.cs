@@ -77,9 +77,9 @@ namespace SapDiApi.Bridge.Controllers
                     message = "Debe enviar al menos una línea."
                 });
             }
-
+            string companyDb = Request.Headers["X-Company-DB"];
             var resultado =
-                await _facturaService.CrearFacturaDeudoresAsync(request, session);
+                await _facturaService.CrearFacturaDeudoresAsync(request, session, companyDb);
 
             if (!resultado.success)
             {

@@ -8,6 +8,6 @@ namespace SapDiApi.Bridge.Services.Sap
     public interface ISapDiApiConnectorFacturas
     {
         Task<(bool success, string message, int? docEntry, int? docNum)> CrearFacturaDeudoresSap(
-                ApiClientConfig session, FacturaDeudoresDto request);
+                ApiClientConfig session, FacturaDeudoresDto request, string companyDB);
     }
 }
