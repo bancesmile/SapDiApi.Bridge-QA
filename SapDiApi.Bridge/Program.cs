@@ -8,6 +8,7 @@ using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
 using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
+using SapDiApi.Bridge.Services.Invoices;
 using SapDiApi.Bridge.Services.Sap;
 using Serilog;
 
@@ -45,7 +46,8 @@ builder.Services.AddSingleton<IHealthService, HealthService>();
 builder.Services.AddSingleton<IBusinessPartnerService, BusinessPartnerService>();
 builder.Services.AddSingleton<IApprovalRequestService, ApprovalRequestService>();
 builder.Services.AddSingleton<IDraftService, DraftService>();
-
+builder.Services.AddScoped<IFacturaDeudorService, FacturaDeudoresService>();
+builder.Services.AddSingleton<ISapDiApiConnectorFacturas, SapDiApiConnectorFacturas>();
 // 4. GraphQL con Soporte Completo para Filtering, Sorting, Proyecciones y Mutations
 builder.Services
     .AddGraphQLServer()
