@@ -14,7 +14,7 @@
         public string ? DocCurrency { get; set; }
        // public string? DocRate { get; set; }
         public string? Comments { get; set; }
-        public string JournalMemo { get; set; }
+       // public string JournalMemo { get; set; }
         public int Series { get; set; }
         public DateTime TaxDate { get; set; }
         public string PayToCode { get; set; }
