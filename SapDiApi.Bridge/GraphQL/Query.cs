@@ -5,11 +5,13 @@ using SapDiApi.Bridge.Models.ApprovalRequests;
 using SapDiApi.Bridge.Models.BusinessPartners;
 using SapDiApi.Bridge.Models.Drafts;
 using SapDiApi.Bridge.Models.Health;
+using SapDiApi.Bridge.Models.Users;
 using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
 using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
+using SapDiApi.Bridge.Services.Users;
 
 namespace SapDiApi.Bridge.GraphQL
 {
@@ -94,6 +96,50 @@ namespace SapDiApi.Bridge.GraphQL
         {
             var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
             return await draftService.GetByDocEntryAsync(docEntry, session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL para listar usuarios en SAP Business One con filtros administrativos.
+        /// </summary>
+        public async Task<IEnumerable<UserDto>> GetUsers(
+            UserFilterDto? filter,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await userService.GetFilteredAsync(filter ?? new UserFilterDto(), session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL de un usuario por InternalKey en SAP Business One.
+        /// </summary>
+        public async Task<UserDto?> GetUserById(
+            int internalKey,
+            bool includePermissions,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await userService.GetByIdAsync(internalKey, includePermissions, session);
+        }
+
+        /// <summary>
+        /// Consulta GraphQL de un usuario por código de usuario (UserCode) en SAP Business One.
+        /// </summary>
+        public async Task<UserDto?> GetUserByCode(
+            string userCode,
+            bool includePermissions,
+            [Service] IUserService userService,
+            [Service] IHttpContextAccessor httpContextAccessor,
+            [Service] ISessionManager sessionManager,
+            [Service] IOptions<ApiKeyOptions> apiKeyOptions)
+        {
+            var session = GraphQLAuthHelper.RequireSession(httpContextAccessor, sessionManager, apiKeyOptions);
+            return await userService.GetByCodeAsync(userCode, includePermissions, session);
         }
 
         /// <summary>

@@ -74,8 +74,9 @@ namespace SapDiApi.Bridge.Infrastructure.Security
 
         /// <summary>
         /// Valida si el cliente tiene permisos para interactuar con la sociedad SAP especificada.
+        /// Soporta validación por nombre de BD, código de empresa o ID numérico.
         /// </summary>
-        public bool IsCompanyAllowed(ApiClientConfig? client, string companyDb)
+        public bool IsCompanyAllowed(ApiClientConfig? client, string companyDb, Models.Companies.CompanyDto? company = null)
         {
             if (client == null)
                 return false;
@@ -86,7 +87,20 @@ namespace SapDiApi.Bridge.Infrastructure.Security
             if (client.AllowedCompanies.Any(c => c == "*"))
                 return true;
 
-            return client.AllowedCompanies.Any(c => string.Equals(c, companyDb, StringComparison.OrdinalIgnoreCase));
+            if (client.AllowedCompanies.Any(c => string.Equals(c, companyDb, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            if (company != null)
+            {
+                if (client.AllowedCompanies.Any(c => string.Equals(c, company.CompanyId.ToString(), StringComparison.OrdinalIgnoreCase)))
+                    return true;
+
+                if (!string.IsNullOrWhiteSpace(company.CompanyCode) &&
+                    client.AllowedCompanies.Any(c => string.Equals(c, company.CompanyCode, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            }
+
+            return false;
         }
     }
 

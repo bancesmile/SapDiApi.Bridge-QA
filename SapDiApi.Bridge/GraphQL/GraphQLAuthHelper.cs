@@ -69,32 +69,56 @@ namespace SapDiApi.Bridge.GraphQL
                         if (client != null)
                         {
                             var config = httpContext.RequestServices.GetService<IConfiguration>();
+                            var companyResolver = httpContext.RequestServices.GetService<SapDiApi.Bridge.Services.Companies.ICompanyResolverService>();
 
-                            // Resolver CompanyDB dinámico
-                            string? companyDb = null;
-                            if (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
-                                httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
-                                httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader))
+                            // Resolver identificador dinámico de empresa (Id / Code / DB)
+                            string? rawCompanyIdentifier = null;
+                            if (httpContext.Request.Headers.TryGetValue("X-Company-Id", out var compIdHeader) ||
+                                httpContext.Request.Headers.TryGetValue("CompanyId", out compIdHeader) ||
+                                httpContext.Request.Headers.TryGetValue("X-Company-ID", out compIdHeader))
                             {
-                                companyDb = dbHeader.FirstOrDefault();
+                                rawCompanyIdentifier = compIdHeader.FirstOrDefault();
                             }
 
-                            if (string.IsNullOrWhiteSpace(companyDb) &&
-                                (httpContext.Request.Query.TryGetValue("companyDB", out var queryDb) ||
-                                 httpContext.Request.Query.TryGetValue("CompanyDB", out queryDb) ||
-                                 httpContext.Request.Query.TryGetValue("company_db", out queryDb)))
+                            if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                                (httpContext.Request.Headers.TryGetValue("X-Company-Code", out var codeHeader) ||
+                                 httpContext.Request.Headers.TryGetValue("CompanyCode", out codeHeader)))
                             {
-                                companyDb = queryDb.FirstOrDefault();
+                                rawCompanyIdentifier = codeHeader.FirstOrDefault();
                             }
 
+                            if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                                (httpContext.Request.Headers.TryGetValue("X-Company-DB", out var dbHeader) ||
+                                 httpContext.Request.Headers.TryGetValue("CompanyDB", out dbHeader) ||
+                                 httpContext.Request.Headers.TryGetValue("X-CompanyDB", out dbHeader)))
+                            {
+                                rawCompanyIdentifier = dbHeader.FirstOrDefault();
+                            }
+
+                            if (string.IsNullOrWhiteSpace(rawCompanyIdentifier) &&
+                                (httpContext.Request.Query.TryGetValue("companyId", out var queryId) ||
+                                 httpContext.Request.Query.TryGetValue("company_id", out queryId) ||
+                                 httpContext.Request.Query.TryGetValue("companyCode", out queryId) ||
+                                 httpContext.Request.Query.TryGetValue("company_code", out queryId) ||
+                                 httpContext.Request.Query.TryGetValue("companyDB", out queryId) ||
+                                 httpContext.Request.Query.TryGetValue("company_db", out queryId)))
+                            {
+                                rawCompanyIdentifier = queryId.FirstOrDefault();
+                            }
+
+                            var (found, companyDto, resolvedDbName) = companyResolver != null
+                                ? companyResolver.ResolveCompany(rawCompanyIdentifier)
+                                : (false, null, rawCompanyIdentifier ?? string.Empty);
+
+                            string companyDb = resolvedDbName;
                             if (string.IsNullOrWhiteSpace(companyDb))
                             {
                                 companyDb = config?["SapSettings:DefaultCompanyDB"] ?? string.Empty;
                             }
 
-                            if (!apiKeyOptions.Value.IsCompanyAllowed(client, companyDb))
+                            if (!apiKeyOptions.Value.IsCompanyAllowed(client, companyDb, companyDto))
                             {
-                                throw new GraphQLException($"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP '{companyDb}'.");
+                                throw new GraphQLException($"La aplicación '{client.Name}' no cuenta con permisos para operar en la sociedad SAP solicitada ('{rawCompanyIdentifier ?? companyDb}').");
                             }
 
                             var serviceUser = config?["SapSettings:ServiceUserName"]

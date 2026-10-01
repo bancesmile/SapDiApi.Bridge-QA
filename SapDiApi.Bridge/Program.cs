@@ -6,10 +6,11 @@ using SapDiApi.Bridge.Infrastructure.Swagger;
 using SapDiApi.Bridge.Services.ApprovalRequests;
 using SapDiApi.Bridge.Services.Auth;
 using SapDiApi.Bridge.Services.BusinessPartners;
+using SapDiApi.Bridge.Services.Companies;
 using SapDiApi.Bridge.Services.Drafts;
 using SapDiApi.Bridge.Services.Health;
-using SapDiApi.Bridge.Services.Invoices;
 using SapDiApi.Bridge.Services.Sap;
+using SapDiApi.Bridge.Services.Users;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +36,7 @@ builder.Host.UseSerilog();
 builder.Services.AddHttpContextAccessor();
 builder.Services.Configure<ApiKeyOptions>(builder.Configuration.GetSection(ApiKeyConstants.SectionName));
 builder.Services.AddSingleton<ISessionManager, SessionManager>();
+builder.Services.AddSingleton<ICompanyResolverService, CompanyResolverService>();
 builder.Services.AddScoped<ISapAuthService, SapAuthService>();
 builder.Services.AddScoped<B1SessionAuthFilter>();
 builder.Services.AddScoped<ApiKeyAuthFilter>();
@@ -46,8 +48,8 @@ builder.Services.AddSingleton<IHealthService, HealthService>();
 builder.Services.AddSingleton<IBusinessPartnerService, BusinessPartnerService>();
 builder.Services.AddSingleton<IApprovalRequestService, ApprovalRequestService>();
 builder.Services.AddSingleton<IDraftService, DraftService>();
-builder.Services.AddScoped<IFacturaDeudorService, FacturaDeudoresService>();
-builder.Services.AddSingleton<ISapDiApiConnectorFacturas, SapDiApiConnectorFacturas>();
+builder.Services.AddSingleton<IUserService, UserService>();
+
 // 4. GraphQL con Soporte Completo para Filtering, Sorting, Proyecciones y Mutations
 builder.Services
     .AddGraphQLServer()
