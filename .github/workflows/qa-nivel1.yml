@@ -15,7 +15,7 @@ jobs:
   # ==========================================================
   nivel-1:
     name: Nivel 1 - Calidad y Compilacion
-      runs-on: self-hosted
+    runs-on: self-hosted
 
     steps:
 
