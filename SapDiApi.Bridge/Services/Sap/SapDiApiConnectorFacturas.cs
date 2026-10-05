@@ -60,9 +60,9 @@ namespace SapDiApi.Bridge.Services.Sap
                 return (false, ex.Message);
             }
         }
-        public async Task<(bool success, string message, int? docEntry, int? docNum, string cardCode, string nit, string carName)>CrearFacturaDeudoresSap(
+        public async Task<(bool success, string message, int? docEntry, int? docNum, string cardCode, string nit, string carName)> CrearFacturaDeudoresSap(
             ApiClientConfig sessionKey,
-            FacturaDeudoresDto request, 
+            FacturaDeudoresDto request,
             string companyDB,
             string CardCode,
             string CardName)
@@ -92,15 +92,15 @@ namespace SapDiApi.Bridge.Services.Sap
                         try
                         {
                             // CREAR OBJETO FACTURA
-                            factura = (Documents) company.GetBusinessObject(BoObjectTypes.oInvoices);
+                            factura = (Documents)company.GetBusinessObject(BoObjectTypes.oInvoices);
 
                             // CABECERA
                             factura.DocType = BoDocumentTypes.dDocument_Items;
                             factura.CardCode = CardCode;
                             if (request.DocDate.HasValue)
                                 factura.DocDate = request.DocDate.Value;
-                                factura.DocDueDate = request.DocDate.Value;
-                                factura.TaxDate = request.DocDate.Value;
+                            factura.DocDueDate = request.DocDate.Value;
+                            factura.TaxDate = request.DocDate.Value;
 
                             factura.DocCurrency = request.DocCurrency;
 
@@ -120,16 +120,16 @@ namespace SapDiApi.Bridge.Services.Sap
                             }
 
                             // UDF CABECERA
-                            SetUserField(factura,"U_Nit",request.U_Nit);
-                            SetUserField(factura,"U_Nombre",request.U_Nombre);
-                            SetUserField(factura,"U_FE_Correos",request.U_FE_Correos);
-                            SetUserField(factura,"U_FE_Status",request.U_FE_Status);
-                            SetUserField(factura,"U_TipoDoctoSAT",request.U_TipoDoctoSAT);
-                            SetUserField(factura,"U_DoctoFiscal",request.U_DoctoFiscal);
-                            SetUserField(factura,"U_FE_Establecimiento",request.U_FE_Establecimiento);
-                            SetUserField(factura,"U_Direccion",request.U_Direccion);
-                            SetUserField(factura,"U_Inmueble",request.U_Inmueble);
-                            SetUserField(factura,"U_Convenio",request.U_Convenio);
+                            SetUserField(factura, "U_Nit", request.U_Nit);
+                            SetUserField(factura, "U_Nombre", request.U_Nombre);
+                            SetUserField(factura, "U_FE_Correos", request.U_FE_Correos);
+                            SetUserField(factura, "U_FE_Status", request.U_FE_Status);
+                            SetUserField(factura, "U_TipoDoctoSAT", request.U_TipoDoctoSAT);
+                            SetUserField(factura, "U_DoctoFiscal", request.U_DoctoFiscal);
+                            SetUserField(factura, "U_FE_Establecimiento", request.U_FE_Establecimiento);
+                            SetUserField(factura, "U_Direccion", request.U_Direccion);
+                            SetUserField(factura, "U_Inmueble", request.U_Inmueble);
+                            SetUserField(factura, "U_Convenio", request.U_Convenio);
 
                             // VALIDAR DETALLE
                             if (request.DocumentLines == null ||
@@ -137,9 +137,9 @@ namespace SapDiApi.Bridge.Services.Sap
                             {
                                 return Task.FromResult((
                                     success: false,
-                                    message:"La factura debe contener al menos una línea.",
-                                    docEntry: (int?) null,
-                                    docNum: (int?) null,
+                                    message: "La factura debe contener al menos una línea.",
+                                    docEntry: (int?)null,
+                                    docNum: (int?)null,
                                     cardCode: CardCode,
                                     nit: request.U_Nit,
                                     carName: CardName
@@ -147,40 +147,40 @@ namespace SapDiApi.Bridge.Services.Sap
                             }
 
                             // DETALLE
-                            for (int i = 0;i < request.DocumentLines.Count;i++)
+                            for (int i = 0; i < request.DocumentLines.Count; i++)
                             {
                                 var linea = request.DocumentLines[i];
 
                                 if (i > 0)
                                     factura.Lines.Add();
 
-                                factura.Lines.ItemCode =linea.ItemCode;
+                                factura.Lines.ItemCode = linea.ItemCode;
 
                                 if (!string.IsNullOrWhiteSpace(linea.ItemDescription))
                                 {
-                                    factura.Lines.ItemDescription =linea.ItemDescription;
+                                    factura.Lines.ItemDescription = linea.ItemDescription;
                                 }
 
-                                factura.Lines.Quantity =linea.Quantity;
-                                factura.Lines.UnitPrice =linea.Price;
+                                factura.Lines.Quantity = linea.Quantity;
+                                factura.Lines.UnitPrice = linea.Price;
 
                                 if (!string.IsNullOrWhiteSpace(linea.Currency))
                                 {
-                                    factura.Lines.Currency =linea.Currency;
+                                    factura.Lines.Currency = linea.Currency;
                                 }
 
                                 if (!string.IsNullOrWhiteSpace(linea.CostingCode))
                                 {
-                                    factura.Lines.CostingCode =linea.CostingCode;
+                                    factura.Lines.CostingCode = linea.CostingCode;
                                 }
 
                                 if (!string.IsNullOrWhiteSpace(linea.TaxCode))
                                 {
-                                    factura.Lines.TaxCode =linea.TaxCode;
+                                    factura.Lines.TaxCode = linea.TaxCode;
                                 }
 
-                                SetUserFieldLinea(factura.Lines,"U_Tipo",linea.U_Tipo);
-                                SetUserFieldLinea(factura.Lines,"U_Inmueble",linea.U_Inmueble);
+                                SetUserFieldLinea(factura.Lines, "U_Tipo", linea.U_Tipo);
+                                SetUserFieldLinea(factura.Lines, "U_Inmueble", linea.U_Inmueble);
                             }
 
                             // ==========================
@@ -189,17 +189,17 @@ namespace SapDiApi.Bridge.Services.Sap
 
                             if (request.TaxExtension != null)
                             {
-                                var tax =factura.TaxExtension;
+                                var tax = factura.TaxExtension;
 
                                 if (!string.IsNullOrWhiteSpace(request.TaxExtension.StreetB))
                                     tax.StreetB = request.TaxExtension.StreetB;
 
                                 if (!string.IsNullOrWhiteSpace(request.TaxExtension.CityB))
-                                    tax.CityB =request.TaxExtension.CityB;
+                                    tax.CityB = request.TaxExtension.CityB;
 
                                 if (!string.IsNullOrWhiteSpace(request.TaxExtension.CountyB))
-                                    tax.CountyB =request.TaxExtension.CountyB;
-                               
+                                    tax.CountyB = request.TaxExtension.CountyB;
+
                                 tax.StateB = "7";
                                 tax.CountryB = "GT";
                             }
@@ -209,13 +209,13 @@ namespace SapDiApi.Bridge.Services.Sap
 
                             if (resultado != 0)
                             {
-                                company.GetLastError(out int errorCode,out string errorMessage);
+                                company.GetLastError(out int errorCode, out string errorMessage);
 
                                 return Task.FromResult((
                                     success: false,
                                     message: $"SAP {errorCode}: {errorMessage}",
-                                    docEntry: (int?) null,
-                                    docNum: (int?) null,
+                                    docEntry: (int?)null,
+                                    docNum: (int?)null,
                                     cardCode: CardCode,
                                     nit: request.U_Nit,
                                     carName: CardName
@@ -224,22 +224,22 @@ namespace SapDiApi.Bridge.Services.Sap
 
                             // OBTENER DOCENTRY
 
-                            int docEntry =Convert.ToInt32(company.GetNewObjectKey());
+                            int docEntry = Convert.ToInt32(company.GetNewObjectKey());
 
                             // OBTENER DOCNUM
                             int? docNum = null;
 
-                            facturaCreada =(Documents) company.GetBusinessObject(BoObjectTypes.oInvoices);
+                            facturaCreada = (Documents)company.GetBusinessObject(BoObjectTypes.oInvoices);
 
                             if (facturaCreada.GetByKey(docEntry))
                             {
-                                docNum =facturaCreada.DocNum;
+                                docNum = facturaCreada.DocNum;
                             }
 
                             return Task.FromResult((
                                 success: true,
                                 message: "Factura creada correctamente.",
-                                docEntry: (int?) docEntry,
+                                docEntry: (int?)docEntry,
                                 docNum: docNum,
                                 cardCode: CardCode,
                                 nit: request.U_Nit,
@@ -251,8 +251,8 @@ namespace SapDiApi.Bridge.Services.Sap
                             return Task.FromResult((
                                 success: false,
                                 message: ex.Message,
-                                docEntry: (int?) null,
-                                docNum: (int?) null,
+                                docEntry: (int?)null,
+                                docNum: (int?)null,
                                 cardCode: CardCode,
                                 nit: request.U_Nit,
                                 CardName: CardName
@@ -277,7 +277,7 @@ namespace SapDiApi.Bridge.Services.Sap
             {
                 return (
                     success: false,
-                    message:$"Error conectando con SAP: {ex.Message}",
+                    message: $"Error conectando con SAP: {ex.Message}",
                     docEntry: null,
                     docNum: null,
                     cardCode: CardCode,
@@ -314,7 +314,7 @@ namespace SapDiApi.Bridge.Services.Sap
             }
         }
 
-        public async Task<(bool success, string message, string? cardCode, string? cardName)>ObtenerClientePorNit(
+        public async Task<(bool success, string message, string? cardCode, string? cardName)> ObtenerClientePorNit(
             string companyDB,
             string nit)
         {
@@ -337,7 +337,7 @@ namespace SapDiApi.Bridge.Services.Sap
 
                 try
                 {
-                    rs = (Recordset) company.GetBusinessObject(
+                    rs = (Recordset)company.GetBusinessObject(
                         BoObjectTypes.BoRecordset
                     );
 
@@ -358,8 +358,8 @@ namespace SapDiApi.Bridge.Services.Sap
                         return (
                             false,
                             $"No se encontró cliente con NIT {nit}.",
-                            (string?) null,
-                            (string?) null
+                            (string?)null,
+                            (string?)null
                         );
                     }
 
@@ -381,8 +381,8 @@ namespace SapDiApi.Bridge.Services.Sap
                     return (
                         false,
                         ex.Message,
-                        (string?) null,
-                        (string?) null
+                        (string?)null,
+                        (string?)null
                     );
                 }
                 finally

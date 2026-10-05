@@ -9,6 +9,6 @@ namespace SapDiApi.Bridge.Services.Invoices
         Task<(bool success, string message, int? docEntry, int? docNum, string cardCode, string nit, string CardName)> CrearFacturaDeudoresAsync(
                 FacturaDeudoresDto request, ApiClientConfig? session = null, string companyDB = "");
 
-       
+
     }
 }

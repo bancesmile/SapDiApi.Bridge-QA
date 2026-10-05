@@ -7,14 +7,14 @@
         //public string? Printed { get; set; }
         public DateTime? DocDate { get; set; }
         public DateTime? DocDueDate { get; set; }
-        public string ? CardCode { get; set; }
-        public string ? CardName { get; set; }
+        public string? CardCode { get; set; }
+        public string? CardName { get; set; }
         public string? Address { get; set; }
-       // public decimal ? DocTotal { get; set; }
-        public string ? DocCurrency { get; set; }
-       // public string? DocRate { get; set; }
+        // public decimal ? DocTotal { get; set; }
+        public string? DocCurrency { get; set; }
+        // public string? DocRate { get; set; }
         public string? Comments { get; set; }
-       // public string JournalMemo { get; set; }
+        // public string JournalMemo { get; set; }
         public int Series { get; set; }
         public DateTime TaxDate { get; set; }
         public string PayToCode { get; set; }
@@ -38,11 +38,11 @@
     public class InvoiceDocumentLinesDto
     {
         public int LineNum { get; set; }
-        public string ItemCode { get; set; }    
+        public string ItemCode { get; set; }
         public string ItemDescription { get; set; }
         public double Quantity { get; set; }
         public double Price { get; set; }
-       // public decimal? PriceAfterVAT { get; set; }
+        // public decimal? PriceAfterVAT { get; set; }
         public string Currency { get; set; }
         public string CostingCode { get; set; }
         public string TaxCode { get; set; }

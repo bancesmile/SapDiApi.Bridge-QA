@@ -30,7 +30,7 @@ namespace SapDiApi.Bridge.Controllers
             _approvalService = approvalService;
             _logger = logger;
             _facturaService = facturaService;
-            _companyResolver = companyResolver; 
+            _companyResolver = companyResolver;
         }
 
 
@@ -69,7 +69,7 @@ namespace SapDiApi.Bridge.Controllers
             }
 
             companyDb = companyResult.SapDatabase;
-            
+
             foreach (var request in requests)
             {
                 var resultado =

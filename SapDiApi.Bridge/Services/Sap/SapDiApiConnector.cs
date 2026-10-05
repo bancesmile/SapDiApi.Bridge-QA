@@ -2369,9 +2369,9 @@ namespace SapDiApi.Bridge.Services.Sap
         private static UserDto MapUserDtoFromRecordset(Recordset oRs)
         {
             var phone = GetSafeString(oRs, "PortNum")
-                        ?? GetSafeString(oRs, "Tel1") 
-                        ?? GetSafeString(oRs, "Tel2") 
-                        ?? GetSafeString(oRs, "Cellular") 
+                        ?? GetSafeString(oRs, "Tel1")
+                        ?? GetSafeString(oRs, "Tel2")
+                        ?? GetSafeString(oRs, "Cellular")
                         ?? GetSafeString(oRs, "Mobile");
 
             var dto = new UserDto

@@ -84,10 +84,10 @@ namespace SapDiApi.Bridge.Models.Sap
             return errorCode switch
             {
                 100000085 => true, // Add-on has already logged on with the same account
-                -5002     => true, // Internal error
-                -1116     => true, // Unknown / temporary network error
-                -107      => true, // Connection timed out
-                _         => false
+                -5002 => true, // Internal error
+                -1116 => true, // Unknown / temporary network error
+                -107 => true, // Connection timed out
+                _ => false
             };
         }
 

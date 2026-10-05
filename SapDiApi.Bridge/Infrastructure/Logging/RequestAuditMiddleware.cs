@@ -41,7 +41,7 @@ namespace SapDiApi.Bridge.Infrastructure.Logging
 
             var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "Unknown-IP";
             var clientMachine = context.Request.Headers["User-Agent"].FirstOrDefault() ?? context.Request.Headers["Host"].FirstOrDefault() ?? "Unknown-Client";
-            
+
             var userSession = context.Items["UserSession"] as UserSession;
             var apiClient = context.Items["ApiClient"] as ApiClientConfig;
             var sapUser = userSession?.UserName ?? "Anonymous";
