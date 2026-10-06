@@ -1,10 +1,11 @@
-﻿using SAPbobsCOM;
+using SAPbobsCOM;
 using SapDiApi.Bridge.Infrastructure.Security;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.Companies;
 using SapDiApi.Bridge.Models.Invoices;
 using SapDiApi.Bridge.Models.Sap;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Xml.Linq;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
@@ -15,7 +16,6 @@ namespace SapDiApi.Bridge.Services.Sap
         private readonly ISapCompanyPool _companyPool;
         private readonly IConfiguration _configuration;
         private readonly ILogger<SapDiApiConnectorFacturas> _logger;
-        private Company sapConnector;
         public SapDiApiConnectorFacturas(
             ISapCompanyPool companyPool,
             IConfiguration configuration,
@@ -70,14 +70,14 @@ namespace SapDiApi.Bridge.Services.Sap
             var session = new UserSession
             {
                 CompanyDB = companyDB,
-                UserName = _configuration["SapSettings:ServiceUserName"],
-                Password = _configuration["SapSettings:ServicePassword"],
+                UserName = _configuration["SapSettings:ServiceUserName"] ?? string.Empty,
+                Password = _configuration["SapSettings:ServicePassword"] ?? string.Empty,
             };
 
             var connInfo = BuildConnectionInfo(
                 session.CompanyDB,
-                session.UserName,
-                session.Password
+                session.UserName ?? string.Empty,
+                session.Password ?? string.Empty
             );
 
             try
@@ -86,8 +86,8 @@ namespace SapDiApi.Bridge.Services.Sap
                     connInfo,
                     company =>
                     {
-                        Documents factura = null;
-                        Documents facturaCreada = null;
+                        Documents? factura = null;
+                        Documents? facturaCreada = null;
 
                         try
                         {
@@ -99,8 +99,10 @@ namespace SapDiApi.Bridge.Services.Sap
                             factura.CardCode = CardCode;
                             if (request.DocDate.HasValue)
                                 factura.DocDate = request.DocDate.Value;
-                            factura.DocDueDate = request.DocDate.Value;
-                            factura.TaxDate = request.DocDate.Value;
+                            if (request.DocDate.HasValue)
+                                factura.DocDueDate = request.DocDate.Value;
+                            if (request.DocDate.HasValue)
+                                factura.TaxDate = request.DocDate.Value;
 
                             factura.DocCurrency = request.DocCurrency;
 
@@ -141,7 +143,7 @@ namespace SapDiApi.Bridge.Services.Sap
                                     docEntry: (int?)null,
                                     docNum: (int?)null,
                                     cardCode: CardCode,
-                                    nit: request.U_Nit,
+                                    nit: request.U_Nit ?? string.Empty,
                                     carName: CardName
                                 ));
                             }
@@ -217,7 +219,7 @@ namespace SapDiApi.Bridge.Services.Sap
                                     docEntry: (int?)null,
                                     docNum: (int?)null,
                                     cardCode: CardCode,
-                                    nit: request.U_Nit,
+                                    nit: request.U_Nit ?? string.Empty,
                                     carName: CardName
                                 ));
                             }
@@ -242,7 +244,7 @@ namespace SapDiApi.Bridge.Services.Sap
                                 docEntry: (int?)docEntry,
                                 docNum: docNum,
                                 cardCode: CardCode,
-                                nit: request.U_Nit,
+                                nit: request.U_Nit ?? string.Empty,
                                 carName: CardName
                             ));
                         }
@@ -254,20 +256,24 @@ namespace SapDiApi.Bridge.Services.Sap
                                 docEntry: (int?)null,
                                 docNum: (int?)null,
                                 cardCode: CardCode,
-                                nit: request.U_Nit,
-                                CardName: CardName
+                                nit: request.U_Nit ?? string.Empty,
+                                carName: CardName
                             ));
                         }
                         finally
                         {
                             if (facturaCreada != null)
                             {
+#pragma warning disable CA1416
                                 Marshal.ReleaseComObject(facturaCreada);
+#pragma warning restore CA1416
                             }
 
                             if (factura != null)
                             {
+#pragma warning disable CA1416
                                 Marshal.ReleaseComObject(factura);
+#pragma warning restore CA1416
                             }
                         }
                     }
@@ -281,7 +287,7 @@ namespace SapDiApi.Bridge.Services.Sap
                     docEntry: null,
                     docNum: null,
                     cardCode: CardCode,
-                    nit: request.U_Nit,
+                    nit: request.U_Nit ?? string.Empty,
                     carName: CardName
                 );
             }
@@ -289,7 +295,7 @@ namespace SapDiApi.Bridge.Services.Sap
         private void SetUserField(
             Documents documento,
             string campo,
-            string valor)
+            string? valor)
         {
             if (!string.IsNullOrWhiteSpace(valor))
             {
@@ -303,7 +309,7 @@ namespace SapDiApi.Bridge.Services.Sap
         private void SetUserFieldLinea(
             Document_Lines linea,
             string campo,
-            string valor)
+            string? valor)
         {
             if (!string.IsNullOrWhiteSpace(valor))
             {
@@ -321,19 +327,19 @@ namespace SapDiApi.Bridge.Services.Sap
             var session = new UserSession
             {
                 CompanyDB = companyDB,
-                UserName = _configuration["SapSettings:ServiceUserName"],
-                Password = _configuration["SapSettings:ServicePassword"],
+                UserName = _configuration["SapSettings:ServiceUserName"] ?? string.Empty,
+                Password = _configuration["SapSettings:ServicePassword"] ?? string.Empty,
             };
 
             var connInfo = BuildConnectionInfo(
                 session.CompanyDB,
-                session.UserName,
-                session.Password
+                session.UserName ?? string.Empty,
+                session.Password ?? string.Empty
             );
 
             return await _companyPool.ExecuteAsync(connInfo, async company =>
             {
-                Recordset rs = null;
+                Recordset? rs = null;
 
                 try
                 {
@@ -389,7 +395,9 @@ namespace SapDiApi.Bridge.Services.Sap
                 {
                     if (rs != null)
                     {
+#pragma warning disable CA1416
                         Marshal.ReleaseComObject(rs);
+#pragma warning restore CA1416
                     }
                 }
             });

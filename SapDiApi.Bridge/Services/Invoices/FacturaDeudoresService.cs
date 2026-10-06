@@ -1,4 +1,4 @@
-﻿using SAPbobsCOM;
+using SAPbobsCOM;
 using SapDiApi.Bridge.Infrastructure.Security;
 using SapDiApi.Bridge.Models.Auth;
 using SapDiApi.Bridge.Models.Invoices;
@@ -26,20 +26,20 @@ namespace SapDiApi.Bridge.Services.Invoices
             {
                 if (session == null)
                 {
-                    return (false, "Se requiere una sesión activa (ApiKey) para crear facturas de deudores en SAP.", null, null, null, dto.U_Nit, dto.U_Nombre);
+                    return (false, "Se requiere una sesión activa (ApiKey) para crear facturas de deudores en SAP.", null, null, string.Empty, dto.U_Nit ?? string.Empty, dto.U_Nombre ?? string.Empty);
                 }
-                var (success, message, CardCode, CardName) = await _sapConnectorFacturas.ObtenerClientePorNit(companyDB, dto.U_Nit);
+                var (success, message, CardCode, CardName) = await _sapConnectorFacturas.ObtenerClientePorNit(companyDB, dto.U_Nit ?? string.Empty);
 
                 if (!success)
                 {
-                    return (false, $"Error al obtener cliente por NIT: {message}", null, null, null, dto.U_Nit, dto.U_Nombre);
+                    return (false, $"Error al obtener cliente por NIT: {message}", null, null, string.Empty, dto.U_Nit ?? string.Empty, dto.U_Nombre ?? string.Empty);
                 }
 
-                var result = await _sapConnectorFacturas.CrearFacturaDeudoresSap(session, dto, companyDB, CardCode, CardName);
+                var result = await _sapConnectorFacturas.CrearFacturaDeudoresSap(session, dto, companyDB, CardCode ?? string.Empty, CardName ?? string.Empty);
 
                 if (!result.success)
                 {
-                    return (false, $"Error: {result.message}", null, null, CardCode, result.nit, CardName);
+                    return (false, $"Error: {result.message}", null, null, CardCode ?? string.Empty, result.nit, CardName ?? string.Empty);
                 }
 
                 return (true, "Factura deudores creada exitosamente.", result.docEntry, result.docNum, result.cardCode, result.nit, result.carName);
@@ -47,7 +47,7 @@ namespace SapDiApi.Bridge.Services.Invoices
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error inesperado al crear la factura deudores.");
-                return (false, $"Error inesperado al crear la factura deudores: {ex.Message}", null, null, null, null, null);
+                return (false, $"Error inesperado al crear la factura deudores: {ex.Message}", null, null, string.Empty, string.Empty, string.Empty);
             }
         }
     }
