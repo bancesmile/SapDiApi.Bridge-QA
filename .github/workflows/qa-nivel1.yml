@@ -23,22 +23,6 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      # 2. Validar .NET 8 instalado en el runner
-      - name: Validar .NET 8
-        shell: pwsh
-        run: |
-          Write-Host "SDKs instalados:"
-          dotnet --list-sdks
-
-          $sdk8 = dotnet --list-sdks | Select-String "^8\."
-
-          if (-not $sdk8) {
-              Write-Error "No se encontro .NET SDK 8 en el runner."
-              exit 1
-          }
-
-          Write-Host ".NET SDK 8 disponible correctamente."
-
       # 3. Validar estructura minima
       - name: Validar estructura del proyecto
         shell: pwsh
@@ -58,7 +42,7 @@ jobs:
               exit 1
           }
 
-          Write-Host "Estructura del proyecto correcta."
+          Write-Host "Estructura del proyecto correcta."	
 
       # 4. Restaurar paquetes NuGet
       - name: Restaurar dependencias
