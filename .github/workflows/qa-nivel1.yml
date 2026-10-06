@@ -25,7 +25,7 @@ jobs:
 
       # 3. Validar estructura minima
       - name: Validar estructura del proyecto
-        shell: pwsh
+        shell: powershell
         run: |
           if (-not (Test-Path "./BridgeSap.slnx")) {
               Write-Error "No se encontro BridgeSap.slnx"
