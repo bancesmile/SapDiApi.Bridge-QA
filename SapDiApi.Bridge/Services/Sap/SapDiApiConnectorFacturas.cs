@@ -70,8 +70,8 @@ namespace SapDiApi.Bridge.Services.Sap
             var session = new UserSession
             {
                 CompanyDB = companyDB,
-                UserName = _configuration["SapSettings:ServiceUserName"],
-                Password = _configuration["SapSettings:ServicePassword"],
+                UserName = _configuration["SapSettings:ServiceUserName"] ?? string.Empty,
+                Password = _configuration["SapSettings:ServicePassword"] ?? string.Empty,
             };
 
             var connInfo = BuildConnectionInfo(

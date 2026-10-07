@@ -17,8 +17,8 @@ namespace SapDiApi.Bridge.Models.Invoices
         // public string JournalMemo { get; set; }
         public int Series { get; set; }
         public DateTime TaxDate { get; set; }
-        public string? PayToCode { get; set; }
-        public string? U_Nit { get; set; }
+        public string PayToCode { get; set; } = string.Empty;
+        public string U_Nit { get; set; } = string.Empty;
         public string? U_Nombre { get; set; }
         public string? U_FE_Correos { get; set; }
         public string? U_FE_Status { get; set; }
@@ -38,23 +38,23 @@ namespace SapDiApi.Bridge.Models.Invoices
     public class InvoiceDocumentLinesDto
     {
         public int LineNum { get; set; }
-        public string? ItemCode { get; set; }
-        public string? ItemDescription { get; set; }
+        public string ItemCode { get; set; } = string.Empty;
+        public string ItemDescription { get; set; } = string.Empty;
         public double Quantity { get; set; }
         public double Price { get; set; }
         // public decimal? PriceAfterVAT { get; set; }
-        public string? Currency { get; set; }
-        public string? CostingCode { get; set; }
-        public string? TaxCode { get; set; }
-        public string? U_Tipo { get; set; }
-        public string? U_Inmueble { get; set; }
+        public string Currency { get; set; } = string.Empty;
+        public string CostingCode { get; set; } = string.Empty;
+        public string TaxCode { get; set; } = string.Empty;
+        public string U_Tipo { get; set; } = string.Empty;
+        public string U_Inmueble { get; set; } = string.Empty;
 
     }
     public class InvoiceTaxExtensionDto
     {
-        public string? StreetB { get; set; }
-        public string? CityB { get; set; }
-        public string? CountyB { get; set; }
+        public string StreetB { get; set; } = string.Empty;
+        public string CityB { get; set; } = string.Empty;
+        public string CountyB { get; set; } = string.Empty;
         //public string StateB { get; set; }
         //public string CountryB { get; set; }
     }
