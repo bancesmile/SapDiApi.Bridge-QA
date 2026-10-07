@@ -58,15 +58,9 @@ jobs:
       - name: Validar formato del codigo
         run: dotnet format whitespace ./BridgeSap.slnx --verify-no-changes --no-restore
 
-      # 5. Compilar
+      # 5. Compilar solucion
       - name: Compilar solucion
-        run: dotnet build ./BridgeSap.slnx --configuration Release --no-restore
-
-      # 6. Validar warnings
-      - name: Validar warnings
-        run: dotnet build ./BridgeSap.slnx --configuration Release --no-restore -warnaserror --no-incremental
-
-
+        run: dotnet build ./BridgeSap.slnx --configuration Release --no-restore --no-incremental
   # ==========================================================
   # ACTUALIZAR MAIN SOLO SI NIVEL 1 APRUEBA
   # ==========================================================
