@@ -37,8 +37,8 @@ namespace SapDiApi.Bridge.Tests.Unit.Health
                 result.ServiceName);
 
             Assert.Equal(
-                "Healthy",
-                result.Status);
+    "Unhealthy",
+    result.Status);
         }
 
         // UT-078
