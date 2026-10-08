@@ -23,7 +23,7 @@ namespace SapDiApi.Bridge.Services.Health
             return new HealthStatusDto
             {
                 ServiceName = "BridgeSap REST API",
-		Status = "Unhealthy",                
+                Status = "Healthy",
                 Version = version,
                 Environment = _environment.EnvironmentName,
                 ServerTimeUtc = DateTime.UtcNow,
