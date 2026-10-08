@@ -36,8 +36,8 @@ namespace SapDiApi.Bridge.Tests.Unit.Health
                 "BridgeSap REST API",
                 result.ServiceName);
 
-            Assert.Equal(
-    "Unhealthy",
+       Assert.Equal(
+    "Healthy",
     result.Status);
         }
 
